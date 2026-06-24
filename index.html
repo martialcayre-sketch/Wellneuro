@@ -76,6 +76,7 @@
     .cat-tabac      { background: #f3e5d8; color: #5d4037; }
     .cat-uro        { background: #e8eaf6; color: #283593; }
     .cat-multi      { background: #e8e8e8; color: #333; }
+    .cat-plaintes   { background: #f0e6ff; color: #5a2d82; }
 
     /* Sliders */
     .score-slider { -webkit-appearance:none; width:100%; height:6px;
@@ -522,7 +523,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-        <button class="btn btn-teal" onclick="doAddPatient()">
+        <button class="btn btn-teal" onclick="savePatient()">
           <i class="fas fa-save me-1"></i> Enregistrer
         </button>
       </div>
@@ -667,6 +668,7 @@ const CAT_CLASS = {
   'Tabacologie':        'cat-tabac',
   'Urologie':           'cat-uro',
   'Multi-axes':         'cat-multi',
+  'Plaintes':           'cat-plaintes',
 };
 
 const CAT_ICON = {
@@ -686,6 +688,7 @@ const CAT_ICON = {
   'Tabacologie':        'fas fa-ban',
   'Urologie':           'fas fa-droplet',
   'Multi-axes':         'fas fa-layer-group',
+  'Plaintes':           'fas fa-notes-medical',
 };
 
 let APP = {};
@@ -868,6 +871,10 @@ let QE = {
 };
 
 function startQ(idQ, idAss) {
+  if (idQ === 'Q_PLAINTES') {
+    startPlaintes(idAss);
+    return;
+  }
   document.getElementById('loading').style.display = 'flex';
   google.script.run
     .withSuccessHandler(function(r) {
@@ -881,6 +888,89 @@ function startQ(idQ, idAss) {
     })
     .serveQuestionnaire(idQ);
 }
+
+// ═══════════════════ PATIENT — PLAINTES ACTUELLES ═══════════════════
+
+function startPlaintes(idAss) {
+  document.getElementById('q01-ass-id').value = idAss || '';
+
+  var container = document.getElementById('plaintes-items');
+  container.innerHTML = PLAINTES.map(function(p) {
+    return '<div class="mb-4">' +
+      '<div class="d-flex align-items-center gap-2 mb-2">' +
+        '<span style="font-size:1.3rem">' + p.icon + '</span>' +
+        '<span class="fw-semibold">' + p.label + '</span>' +
+        '<span class="score-val ms-auto" id="val-' + p.key + '">5</span>' +
+      '</div>' +
+      '<input type="range" class="score-slider" id="sl-' + p.key + '" ' +
+        'min="1" max="10" value="5" ' +
+        'oninput="document.getElementById(\'val-' + p.key + '\').textContent=this.value">' +
+      '<div class="d-flex justify-content-between">' +
+        '<small class="text-success">1 — Pas de gêne</small>' +
+        '<small class="text-danger">10 — Gêne maximale</small>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  showView('q01');
+}
+
+document.getElementById('form-plaintes').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('btn-submit-plaintes');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Envoi…';
+
+  var data = {
+    idPatient:     APP.idPatient || '',
+    email:         APP.email || '',
+    idAssignation: document.getElementById('q01-ass-id').value || ''
+  };
+  PLAINTES.forEach(function(p) {
+    data[p.key] = parseInt(document.getElementById('sl-' + p.key).value, 10);
+  });
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i> Envoyer mes réponses';
+      if (r && r.error) { alert('Erreur : ' + r.error); return; }
+
+      document.getElementById('res-icon').textContent =
+        r.total >= 56 ? '🟢' : r.total >= 35 ? '🟠' : '🔴';
+      document.getElementById('res-title').textContent = r.interpretation;
+      document.getElementById('res-score').textContent = 'Score total : ' + r.total + ' / 70';
+      document.getElementById('res-msg').textContent =
+        r.total >= 56 ? 'Faible charge symptomatique globale. Poursuivez vos bonnes habitudes.'
+        : r.total >= 35 ? 'Charge modérée. Certains axes méritent une attention particulière.'
+        : 'Charge élevée. Un accompagnement ciblé est recommandé.';
+
+      var bars = document.getElementById('res-bars');
+      bars.innerHTML = PLAINTES.map(function(p) {
+        var val = data[p.key];
+        var pct = val * 10;
+        var color = val <= 3 ? '#27ae60' : val <= 6 ? '#f39c12' : '#dc3545';
+        return '<div class="mb-2">' +
+          '<div class="d-flex justify-content-between small">' +
+            '<span>' + p.icon + ' ' + p.label + '</span>' +
+            '<span class="fw-bold">' + val + '/10</span>' +
+          '</div>' +
+          '<div class="sbar-bg"><div class="sbar-fill" style="width:' + pct +
+            '%;background:' + color + '"></div></div>' +
+        '</div>';
+      }).join('');
+
+      showView('result');
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i> Envoyer mes réponses';
+      alert('Erreur envoi : ' + e.message);
+    })
+    .submitPlaintes(data);
+});
+
+// ═══════════════════ MOTEUR QUESTIONNAIRE (QE) ═══════════════════
 
 function qeInit(def, idAss) {
   QE.def    = def;
@@ -935,7 +1025,7 @@ function qeRenderSection(idx) {
 
 function qeRenderQuestion(q) {
   const num   = '<span class="qe-question-num">' + (q.order || q.num || '') + '.</span> ';
-  const label = '<div class="qe-question-label">' + num + (q.label || q.question || '') +
+  const label = '<div class="qe-question-label">' + num + (q.label || q.texte || q.question || '') +
     (q.required ? ' <span class="required-star">*</span>' : '') + '</div>';
   const vmsg  = '<div class="qe-validation-msg" id="vm_' + q.id + '">Réponse requise</div>';
 
@@ -964,8 +1054,17 @@ function qeRenderQuestion(q) {
       '<input type="number" class="qe-number" name="' + q.id + '" id="qe_' + q.id + '"' +
       ' min="' + (q.min !== undefined ? q.min : 0) + '"' +
       ' max="' + (q.max !== undefined ? q.max : 100) + '">' +
-      (q.unite ? '<span class="text-muted small">' + q.unite + '</span>' : '') +
+      ((q.unit || q.unite) ? '<span class="text-muted small">' + (q.unit || q.unite) + '</span>' : '') +
       '</div>' + vmsg + '</div>';
+  }
+
+  if (q.type === 'bristol') {
+    var opts = (q.options || []).map(function(o) {
+      return '<label class="qe-opt">' +
+        '<input type="radio" name="' + q.id + '" value="' + o.value + '">' +
+        (o.icon ? o.icon + ' ' : '') + o.label + '</label>';
+    }).join('');
+    return '<div class="qe-question qe-bristol"><div class="qe-opt-vertical">' + label + opts + '</div>' + vmsg + '</div>';
   }
 
   if (q.type === 'boolean') {
@@ -983,7 +1082,7 @@ function qeRenderQuestion(q) {
 function qeRestoreAnswer(q) {
   const val = QE.answers[q.id];
   if (val === undefined || val === null) return;
-  if (q.type === 'likert' || q.type === 'radio' || q.type === 'boolean') {
+  if (q.type === 'likert' || q.type === 'radio' || q.type === 'boolean' || q.type === 'bristol') {
     const radio = document.querySelector('input[name="' + q.id + '"][value="' + val + '"]');
     if (radio) radio.checked = true;
   } else {
@@ -1001,7 +1100,7 @@ function qeCollectSection() {
     if (vm) vm.style.display = 'none';
 
     let val;
-    if (q.type === 'likert' || q.type === 'radio' || q.type === 'boolean') {
+    if (q.type === 'likert' || q.type === 'radio' || q.type === 'boolean' || q.type === 'bristol') {
       const checked = document.querySelector('input[name="' + q.id + '"]:checked');
       val = checked ? checked.value : null;
     } else if (q.type === 'number') {
@@ -1089,8 +1188,11 @@ function qeShowScore(r) {
 
   const interpEl = document.getElementById('qs-interp');
   if (scores.interpretation && scores.interpretation.label) {
-    interpEl.className = 'alert mb-3 py-2 px-3 alert-info';
-    interpEl.textContent = scores.interpretation.label;
+    var colorMap = {success:'alert-success', info:'alert-info', warning:'alert-warning', danger:'alert-danger', dark:'alert-dark', primary:'alert-primary'};
+    var alertClass = colorMap[scores.interpretation.color] || 'alert-info';
+    interpEl.className = 'alert mb-3 py-2 px-3 ' + alertClass;
+    interpEl.innerHTML = '<strong>' + scores.interpretation.label + '</strong>' +
+      (scores.interpretation.protocol ? '<br><small class="text-muted">' + scores.interpretation.protocol + '</small>' : '');
   } else {
     interpEl.className = 'alert mb-3 py-2 px-3 alert-success';
     interpEl.textContent = 'Merci — vos réponses ont été transmises à votre praticien.';
@@ -1098,17 +1200,52 @@ function qeShowScore(r) {
 
   const subEl = document.getElementById('qs-subscores');
   subEl.innerHTML = '';
-  if (scores.subscores) {
-    subEl.innerHTML = Object.entries(scores.subscores).map(function(entry) {
-      const key = entry[0], val = entry[1];
-      const max = val.max || 40;
-      const pct = Math.min(100, Math.round((val.score / max) * 100));
-      const color = pct >= 70 ? '#dc3545' : pct >= 40 ? '#f39c12' : '#27ae60';
+  var subs = scores.subScores || scores.subscores;
+  if (subs && Array.isArray(subs)) {
+    subEl.innerHTML = subs.map(function(val) {
+      var sc = val.scaled !== undefined ? val.scaled : val.total;
+      var max = val.maxScaled || val.max || 40;
+      var pct = max > 0 ? Math.min(100, Math.round((sc / max) * 100)) : 0;
+      var color = pct >= 70 ? '#dc3545' : pct >= 40 ? '#f39c12' : '#27ae60';
+      var interpText = val.interpretation && val.interpretation.label ? ' — ' + val.interpretation.label : '';
       return '<div class="qs-subscore">' +
-        '<div><strong>' + (val.label || key) + '</strong>' +
+        '<div><strong>' + (val.label || val.id) + '</strong>' + interpText +
         '<div class="qs-progress"><div class="qs-bar" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
-        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + val.score + '/' + max + '</span>' +
+        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + sc + '/' + max + '</span>' +
         '</div>';
+    }).join('');
+  }
+
+  // PSQI components
+  if (scores.components && Array.isArray(scores.components)) {
+    subEl.innerHTML += scores.components.map(function(c) {
+      var max = c.max || 3;
+      var pct = max > 0 ? Math.min(100, Math.round(((c.val || 0) / max) * 100)) : 0;
+      var color = pct >= 70 ? '#dc3545' : pct >= 40 ? '#f39c12' : '#27ae60';
+      return '<div class="qs-subscore">' +
+        '<div><strong>' + c.label + '</strong>' +
+        '<div class="qs-progress"><div class="qs-bar" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
+        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + (c.val || 0) + '/' + max + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Phases (Test 5 mots Dubois)
+  if (scores.phases && Array.isArray(scores.phases)) {
+    subEl.innerHTML += scores.phases.map(function(p) {
+      return '<div class="qs-subscore"><div><strong>' + p.label + '</strong></div>' +
+        '<span class="qs-badge bg-light text-dark border">' + p.total + '/' + p.maxTotal + '</span></div>';
+    }).join('');
+    if (scores.alertMA && scores.alertLabel) {
+      subEl.innerHTML += '<div class="alert alert-danger py-2 px-3 mt-2" style="font-size:.85rem">' + scores.alertLabel + '</div>';
+    }
+  }
+
+  // Berlin categories
+  if (scores.categories && Array.isArray(scores.categories)) {
+    subEl.innerHTML += scores.categories.map(function(c) {
+      var badge = c.positive ? '<span class="badge bg-danger">Positif</span>' : '<span class="badge bg-success">Négatif</span>';
+      return '<div class="qs-subscore"><div><strong>' + c.label + '</strong></div>' + badge + '</div>';
     }).join('');
   }
 
@@ -1129,6 +1266,9 @@ function loadPraticienHome() {
       // Stats
       document.getElementById('s-questionnaires').textContent = ALL_QUESTIONNAIRES.length;
       document.getElementById('s-patients').textContent = (d.patients || []).length;
+      var ass = d.assignations || [];
+      document.getElementById('s-pending').textContent = ass.filter(function(a) { return a.statut === 'En attente'; }).length;
+      document.getElementById('s-done').textContent = ass.filter(function(a) { return a.statut === 'Complété'; }).length;
 
       // Populate patient selects
       var patOpts = (d.patients || []).map(function(p) {
@@ -1316,12 +1456,22 @@ function renderResults(list) {
         (sc.interpretation.protocol ? '<br><em class="text-muted">' + sc.interpretation.protocol + '</em>' : '') +
         '</div>';
     }
+    var subScoresHtml = '';
+    var subList = sc.subScores || [];
+    if (Array.isArray(subList) && subList.length > 0) {
+      subScoresHtml = '<div class="mt-2">' + subList.map(function(s) {
+        var sVal = s.scaled !== undefined ? s.scaled : s.total;
+        var sMax = s.maxScaled || s.max || '';
+        var sInterp = s.interpretation && s.interpretation.label ? ' — ' + s.interpretation.label : '';
+        return '<div class="small text-muted">' + s.label + ' : ' + sVal + (sMax ? '/' + sMax : '') + sInterp + '</div>';
+      }).join('') + '</div>';
+    }
     return '<div class="card mb-3 p-3">' +
       '<div class="d-flex align-items-center gap-2 mb-1">' +
       '<i class="fas fa-clipboard-check" style="color:var(--accent)"></i>' +
       '<span class="fw-semibold">' + r.titre + '</span>' + total +
       '<span class="text-muted small ms-auto">' + (r.date || '') + '</span>' +
-      '</div>' + interp +
+      '</div>' + interp + subScoresHtml +
       (r.interpretation ? '<div class="text-muted small mt-1">' + r.interpretation + '</div>' : '') +
       '</div>';
   }).join('');
@@ -1339,6 +1489,8 @@ function savePatient() {
   var email  = document.getElementById('np-email').value.trim();
   var telEl  = document.getElementById('np-tel');
   var tel    = telEl ? telEl.value.trim() : '';
+  var ddnEl  = document.getElementById('np-ddn');
+  var ddn    = ddnEl ? ddnEl.value : '';
   if (!prenom || !nom || !email) { alert('Prénom, nom et email sont requis.'); return; }
 
   google.script.run
@@ -1348,7 +1500,7 @@ function savePatient() {
       loadPraticienHome();
     })
     .withFailureHandler(function(e) { alert(e.message); })
-    .addPatientFromClient({ prenom: prenom, nom: nom, email: email, telephone: tel });
+    .addPatientFromClient({ prenom: prenom, nom: nom, email: email, telephone: tel, dateNaissance: ddn });
 }
 
 // ═══════════════════ MODALS — PACK BUILDER ═══════════════════

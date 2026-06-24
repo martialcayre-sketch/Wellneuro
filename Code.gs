@@ -131,13 +131,14 @@ function getPatientAssignations(email) {
     const sh = getSheet('Assignations');
     const rows = sh.getDataRange().getValues();
     const results = [];
+    const normalizedEmail = normalizeEmail_(email);
 
     // Colonnes Assignations : A=ID, B=ID Patient, C=Email Patient, D=ID Q,
     // E=Titre, F=Date assignation, G=Date limite, H=Statut, I=Notes
     for (let i = DATA_START; i < rows.length; i++) {
       const row = rows[i];
       if (!row[0]) continue;
-      if (row[2] === email) {
+      if (normalizeEmail_(row[2]) === normalizedEmail) {
         results.push({
           idAssignation:  row[0],
           idPatient:      row[1],
@@ -472,14 +473,14 @@ function getPraticienData() {
   return d;
 }
 
-// Wrapper addPatient : accepte objet {prenom,nom,email,telephone}
+// Wrapper addPatient : accepte objet {prenom,nom,email,telephone,dateNaissance}
 function addPatientFromClient(payload) {
   return addPatient(
     payload.prenom || '',
     payload.nom || '',
     payload.email || '',
     payload.telephone || '',
-    ''
+    payload.dateNaissance || ''
   );
 }
 
@@ -583,6 +584,10 @@ function initCatalogue() {
   }
 
   const Q = [
+    // ── PLAINTES ACTUELLES ───────────────────────────────────────────────────
+    ['Q_PLAINTES', 'Questionnaire Plaintes Actuelles', 'Plaintes',
+     'Évaluez votre niveau de gêne pour 7 symptômes courants au cours des 30 derniers jours (échelle 1–10).', '5 min', 'OUI'],
+
     // ── ALIMENTAIRE ───────────────────────────────────────────────────────────
     ['Q_ALI_01', 'Questionnaire Alimentaire SIIN', 'Alimentaire',
      'Évaluez la qualité globale de votre alimentation : légumes, fruits, protéines, graisses, sucres et comportements alimentaires.', '15 min', 'OUI'],
@@ -823,10 +828,11 @@ function getQuestionnaireResults(patientEmail) {
     if (!sh) return [];
     const rows = sh.getDataRange().getValues();
     const results = [];
+    const normalizedEmail = normalizeEmail_(patientEmail);
     for (let i = DATA_START; i < rows.length; i++) {
       const row = rows[i];
       if (!row[0]) continue;
-      if (row[2] === patientEmail) {
+      if (normalizeEmail_(row[2]) === normalizedEmail) {
         let scores = {};
         try { scores = JSON.parse(row[8]); } catch(e) {}
         results.push({
