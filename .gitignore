@@ -1,0 +1,28 @@
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+.clasp.json
+.clasprc.json
+credentials.json
+token.json
+client_secret*.json
+
+# Dépendances et builds
+node_modules/
+.next/
+dist/
+build/
+
+# Données sensibles / exports
+exports/
+data/private/
+patients_reels/
+resultats_reels/
+*.csv
+*.xlsx
+
+# Journaux et fichiers système
+*.log
+.DS_Store
+Thumbs.db
