@@ -3,7 +3,7 @@
 // Google Apps Script — Serveur
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const SHEET_ID = '[A_CONFIGURER]';
+const SHEET_ID = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
 
 // Mode développement : permet à Martial d'accéder aux deux espaces avec le même compte Google.
 // À supprimer ou vider avant mise en production.
