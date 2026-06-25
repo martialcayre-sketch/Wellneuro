@@ -33,7 +33,15 @@
       "Bash(node /workspaces/nutriconsult-nnpp2-gas-mvp/test-qe.js)",
       "Bash(git rm *)",
       "Bash(npx clasp *)",
-      "Bash(npm ls *)"
+      "Bash(npm ls *)",
+      "Bash(rm /workspaces/nutriconsult-nnpp2-gas-mvp/proxy.js)",
+      "Bash(chmod +x /workspaces/nutriconsult-nnpp2-gas-mvp/scripts/deploy.sh)",
+      "Bash(bash scripts/deploy.sh \"v17 — suppression proxy + script deploy\")",
+      "Bash(bash scripts/check_no_secrets.sh)",
+      "Bash(grep -rnE --exclude-dir='.git' --exclude='check_no_secrets.sh' '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Za-z]{2,}' .)"
+    ],
+    "additionalDirectories": [
+      "/workspaces/nutriconsult-nnpp2-gas-mvp"
     ]
   }
 }
