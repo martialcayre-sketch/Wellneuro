@@ -1,0 +1,17 @@
+{
+  "name": "Nutriconsult GAS Dev",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "postCreateCommand": "npm install -g @google/clasp && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "remoteEnv": {
+    "NODE_ENV": "development"
+  }
+}
