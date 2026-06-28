@@ -574,12 +574,12 @@ function setupDevMultiRoleMartial() {
 
 // ─── OUTIL DEV — CRÉER LES PRATICIENS WELLNEURO.FR ───────────────────────────
 
-function setupPraticienWellneuro_() {
+function setupPraticienWellneuro() {
   const ss = SpreadsheetApp.openById(
     PropertiesService.getScriptProperties().getProperty('SHEET_ID')
   );
-  const sh = ss.getSheetByName('Utilisateurs');
-  if (!sh) throw new Error('Feuille Utilisateurs introuvable');
+  const sh = ss.getSheetByName('Patients');
+  if (!sh) throw new Error('Feuille Patients introuvable');
 
   const now = new Date().toISOString();
   const existingEmails = sh.getDataRange().getValues()

@@ -7,7 +7,7 @@ const SHEET_ID = PropertiesService.getScriptProperties().getProperty('SHEET_ID')
 
 // Mode développement : permet à Martial d'accéder aux deux espaces avec le même compte Google.
 // À supprimer ou vider avant mise en production.
-const DEV_MULTI_ROLE_EMAILS = ['martialcayre@gmail.com'];
+const DEV_MULTI_ROLE_EMAILS = ['martialcayre@wellneuro.fr'];
 
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
@@ -530,7 +530,7 @@ function deletePack(packId) {
 // ─── OUTIL DEV — CRÉER LES DEUX RÔLES POUR MARTIAL ──────────────────────────
 
 function setupDevMultiRoleMartial() {
-  const email = 'martialcayre@gmail.com';
+  const email = 'martialcayre@wellneuro.fr';
   const sh = getSheet('Patients');
   const rows = sh.getDataRange().getValues();
   const now = new Date();
@@ -569,6 +569,59 @@ function setupDevMultiRoleMartial() {
     praticien: hasPraticien || rowsToAdd.some(r => r[2] === 'Praticien'),
     patient: hasPatient || rowsToAdd.some(r => r[2] === 'Patient'),
     added: rowsToAdd.length
+  };
+}
+
+// ─── OUTIL DEV — CRÉER LES PRATICIENS WELLNEURO.FR ───────────────────────────
+
+function setupPraticienWellneuro() {
+  const ss = SpreadsheetApp.openById(
+    PropertiesService.getScriptProperties().getProperty('SHEET_ID')
+  );
+  const sh = ss.getSheetByName('Patients');
+  if (!sh) throw new Error('Feuille Patients introuvable');
+
+  const now = new Date().toISOString();
+  const existingEmails = sh.getDataRange().getValues()
+    .slice(1)
+    .map(r => String(r[1]).trim().toLowerCase());
+
+  const comptes = [
+    {
+      id:     'PRA_CONTACT_WN',
+      email:  'contact@wellneuro.fr',
+      role:   'Praticien',
+      prenom: 'Contact',
+      nom:    'WellNeuro',
+      note:   'Compte praticien démonstration'
+    },
+    {
+      id:     'PRA_ADMIN_WN',
+      email:  'admin@wellneuro.fr',
+      role:   'Praticien',
+      prenom: 'Admin',
+      nom:    'WellNeuro',
+      note:   'Compte praticien administration'
+    }
+  ];
+
+  const added = [];
+  comptes.forEach(function(c) {
+    if (existingEmails.indexOf(c.email) !== -1) {
+      Logger.log('Déjà présent : ' + c.email);
+      return;
+    }
+    sh.appendRow([
+      c.id, c.email, c.role, c.prenom, c.nom,
+      '', '', c.email, now, 'OUI', c.note
+    ]);
+    added.push(c.email);
+    Logger.log('Créé : ' + c.email + ' (' + c.role + ')');
+  });
+
+  return {
+    added: added,
+    skipped: comptes.filter(c => existingEmails.indexOf(c.email) !== -1).map(c => c.email)
   };
 }
 
@@ -849,9 +902,4 @@ function getQuestionnaireResults(patientEmail) {
 
 function ping() {
   return { status: 'ok', timestamp: new Date().toISOString() };
-}
-
-function testScoring(params) {
-  const { qid, answers } = params;
-  return calculateScore(qid, answers || {});
 }
