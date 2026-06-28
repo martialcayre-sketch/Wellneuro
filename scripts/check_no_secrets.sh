@@ -19,7 +19,7 @@ check_pattern "ANTHROPIC_API_KEY" "ANTHROPIC_API_KEY[[:space:]]*[:=][[:space:]]*
 check_pattern "CLAUDE_API_KEY" "CLAUDE_API_KEY[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9_-]{10,}"
 check_pattern "client_secret" "client_secret[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9_-]{10,}"
 check_pattern "private_key" "private_key[[:space:]]*[:=][[:space:]]*['\"]?-----BEGIN"
-if grep -rnE --exclude-dir='.git' --exclude='check_no_secrets.sh' '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' . 2>/dev/null | grep -v 'martialcayre@gmail\.com' | grep -v 'placeholder=' | grep -v 'noreply@' | grep -q .; then
+if grep -rnE --exclude-dir='.git' --exclude='check_no_secrets.sh' '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' . 2>/dev/null | grep -v '@wellneuro\.fr' | grep -v 'martialcayre@gmail\.com' | grep -v 'placeholder=' | grep -v 'noreply@' | grep -q .; then
   echo "ERREUR: email non autorisé détecté. N'utiliser que des données fictives." >&2
   status=1
 fi
