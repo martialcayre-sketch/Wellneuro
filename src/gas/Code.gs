@@ -515,8 +515,9 @@ function getPraticienDashboard() {
     }
 
     const metrics = getPracticienMetrics_();
+    const opsHistory = getOpsHistory_();
 
-    return { patients, questionnaires, packs, assignations, metrics };
+    return { patients, questionnaires, packs, assignations, metrics, opsHistory };
   } catch(e) {
     return { error: e.message };
   }
@@ -580,6 +581,52 @@ function getPracticienMetrics_() {
   }
 
   return metrics;
+}
+
+function getOpsHistory_() {
+  var events = [];
+  try {
+    var synthSh = getSheet('Syntheses_IA');
+    if (synthSh) {
+      var synthRows = synthSh.getDataRange().getValues();
+      for (var i = DATA_START; i < synthRows.length; i++) {
+        var row = synthRows[i];
+        if (!row[0]) continue;
+        var d = row[3] ? new Date(row[3]) : null;
+        if (!d || isNaN(d.getTime())) continue;
+        events.push({
+          date: d.getTime(),
+          dateStr: formatDate(d),
+          type: 'Synthèse IA',
+          detail: (row[1] || '') + ' — ' + (row[8] || ''),
+          patient: row[1] || ''
+        });
+      }
+    }
+  } catch(e) { Logger.log('getOpsHistory_ synth: ' + e.message); }
+
+  try {
+    var bookletSh = getSheet('Booklet_Envois');
+    if (bookletSh) {
+      var bookletRows = bookletSh.getDataRange().getValues();
+      for (var j = DATA_START; j < bookletRows.length; j++) {
+        var bRow = bookletRows[j];
+        if (!bRow[0]) continue;
+        var bd = bRow[0] ? new Date(bRow[0]) : null;
+        if (!bd || isNaN(bd.getTime())) continue;
+        events.push({
+          date: bd.getTime(),
+          dateStr: formatDate(bd),
+          type: 'Booklet',
+          detail: (bRow[1] || '') + ' — ' + (bRow[4] || ''),
+          patient: bRow[1] || ''
+        });
+      }
+    }
+  } catch(e) { Logger.log('getOpsHistory_ booklet: ' + e.message); }
+
+  events.sort(function(a, b) { return b.date - a.date; });
+  return events.slice(0, 20);
 }
 
 function addPatient(prenom, nom, email, telephone, dateNaissance) {
