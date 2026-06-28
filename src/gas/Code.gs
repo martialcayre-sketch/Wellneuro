@@ -1254,3 +1254,220 @@ function getQuestionnaireResults(patientEmail) {
 function ping() {
   return { status: 'ok', timestamp: new Date().toISOString() };
 }
+
+// ─── PHASE 2A — SYNTHÈSE IA CLINIQUE ─────────────────────────────────────────
+
+var SYNTHESE_HEADERS = [
+  'ID_Synthese', 'ID_Patient', 'Email_Patient', 'Date_Generation',
+  'Modele', 'Version_Prompt', 'Resultats_JSON', 'Synthese_JSON',
+  'Statut', 'Validation_Praticien', 'Notes_Praticien'
+];
+
+var SYSTEM_PROMPT_SYNTHESE = [
+  "Tu es un assistant d'aide à la synthèse en neuronutrition. Tu aides un praticien formé SIIN à organiser les résultats de questionnaires validés remplis par un patient avant sa consultation.",
+  "Tu ne poses pas de diagnostic médical. Tu formules des hypothèses, des priorités cliniques et des questions d'entretien.",
+  "Tu t'appuies uniquement sur les scores et interprétations fournis dans les données patient.",
+  "Le corpus SIIN complet n'est pas encore disponible : n'invente pas de protocole SIIN et ne cite pas de source absente.",
+  "Ne recommande aucun dosage précis de compléments ou de médicaments.",
+  "Toute recommandation doit rester générale et être présentée comme « à valider par le praticien ».",
+  "Si les données sont insuffisantes pour conclure sur un axe, signale-le explicitement.",
+  "Réponds en français. Le champ resume_praticien s'adresse au praticien (langage clinique concis). Le champ narratif_patient s'adresse au patient (langage accessible, bienveillant, sans jargon médical).",
+  "Utilise uniquement les formulations prudentes : hypothèse, axe à explorer, priorité clinique probable, point de vigilance, à confirmer par l'entretien.",
+  "Réponds exclusivement en JSON valide, sans texte avant ni après.",
+  'Structure exacte : {"resume_praticien":"...","axes_prioritaires":[{"axe":"...","niveau_priorite":"eleve|modere|faible","arguments":["..."],"points_a_confirmer":["..."]}],"points_de_vigilance":["..."],"questions_entretien":["..."],"narratif_patient":"...","limites":"Synthèse générée par IA sans corpus SIIN complet — à valider par le praticien."}'
+].join('\n');
+
+function callClaudeForSynthesis_(userMessage) {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée dans les propriétés du script.');
+
+  var model = props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-4-20250514';
+
+  var payload = {
+    model: model,
+    max_tokens: 2048,
+    messages: [
+      { role: 'user', content: userMessage }
+    ],
+    system: SYSTEM_PROMPT_SYNTHESE
+  };
+
+  var options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  var response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', options);
+  var code = response.getResponseCode();
+  var body = response.getContentText();
+
+  if (code !== 200) {
+    Logger.log('callClaudeForSynthesis_ HTTP ' + code + ': ' + body.substring(0, 500));
+    throw new Error('Erreur API Claude (HTTP ' + code + '). Réessayez dans quelques instants.');
+  }
+
+  var parsed = JSON.parse(body);
+  var text = '';
+  if (parsed.content && parsed.content.length > 0) {
+    text = parsed.content[0].text || '';
+  }
+  if (!text) throw new Error('Réponse vide de l\'API Claude.');
+
+  var jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('La réponse IA ne contient pas de JSON valide.');
+
+  return JSON.parse(jsonMatch[0]);
+}
+
+function buildSyntheseUserMessage_(results, patientPrenom, patientNom) {
+  var filtered = results.map(function(r) {
+    return {
+      titre: r.titre,
+      date: r.date,
+      scores: r.scores,
+      scorePrincipal: r.scorePrincipal,
+      interpretation: r.interpretation
+    };
+  });
+
+  return 'Patient : ' + (patientPrenom || '') + ' ' + (patientNom || '') + '\n' +
+    'Nombre de questionnaires complétés : ' + filtered.length + '\n\n' +
+    'Résultats des questionnaires :\n' +
+    JSON.stringify(filtered, null, 2);
+}
+
+function getPatientInfo_(email) {
+  var sh = getSheet('Patients');
+  var rows = sh.getDataRange().getValues();
+  var normalizedEmail = normalizeEmail_(email);
+  for (var i = DATA_START; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row[0]) continue;
+    if (normalizeEmail_(row[1]) === normalizedEmail && row[2] === 'Patient') {
+      return { idPatient: row[0], prenom: row[3], nom: row[4] };
+    }
+  }
+  return null;
+}
+
+function generateAISynthesisForPatient(patientEmail) {
+  try {
+    var results = getQuestionnaireResults(patientEmail);
+    if (!results || results.error) return { error: results ? results.error : 'Erreur lecture résultats' };
+    if (!Array.isArray(results) || results.length === 0) return { error: 'Aucun résultat disponible pour ce patient.' };
+
+    var patient = getPatientInfo_(patientEmail);
+    if (!patient) return { error: 'Patient introuvable.' };
+
+    var userMessage = buildSyntheseUserMessage_(results, patient.prenom, patient.nom);
+    var synthese = callClaudeForSynthesis_(userMessage);
+
+    var props = PropertiesService.getScriptProperties();
+    var model = props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-4-20250514';
+    var idSynthese = 'SYN' + new Date().getTime();
+
+    var sh = getOrCreateSheet('Syntheses_IA', SYNTHESE_HEADERS);
+    var lastRow = Math.max(sh.getLastRow(), DATA_START);
+    sh.getRange(lastRow + 1, 1, 1, 11).setValues([[
+      idSynthese,
+      patient.idPatient,
+      patientEmail,
+      new Date(),
+      model,
+      'v1',
+      JSON.stringify(results),
+      JSON.stringify(synthese),
+      'Brouillon_IA',
+      '',
+      ''
+    ]]);
+
+    return {
+      success: true,
+      idSynthese: idSynthese,
+      synthese: synthese,
+      modele: model,
+      date: formatDate(new Date())
+    };
+  } catch(e) {
+    Logger.log('generateAISynthesisForPatient error: ' + e.message);
+    return { error: e.message };
+  }
+}
+
+function validateSynthesis(idSynthese) {
+  try {
+    var sh = getSheet('Syntheses_IA');
+    if (!sh) return { error: 'Feuille Syntheses_IA introuvable' };
+    var rows = sh.getDataRange().getValues();
+    for (var i = DATA_START; i < rows.length; i++) {
+      if (rows[i][0] === idSynthese) {
+        sh.getRange(i + 1, 9).setValue('Validee_Praticien');
+        sh.getRange(i + 1, 10).setValue(new Date());
+        return { success: true };
+      }
+    }
+    return { error: 'Synthèse introuvable' };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+function rejectSynthesis(idSynthese) {
+  try {
+    var sh = getSheet('Syntheses_IA');
+    if (!sh) return { error: 'Feuille Syntheses_IA introuvable' };
+    var rows = sh.getDataRange().getValues();
+    for (var i = DATA_START; i < rows.length; i++) {
+      if (rows[i][0] === idSynthese) {
+        sh.getRange(i + 1, 9).setValue('Rejetee');
+        return { success: true };
+      }
+    }
+    return { error: 'Synthèse introuvable' };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+function getLatestSynthesis(patientEmail) {
+  try {
+    var sh = getSheet('Syntheses_IA');
+    if (!sh) return null;
+    var rows = sh.getDataRange().getValues();
+    var normalizedEmail = normalizeEmail_(patientEmail);
+    var latest = null;
+
+    for (var i = DATA_START; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row[0]) continue;
+      if (normalizeEmail_(row[2]) !== normalizedEmail) continue;
+      if (row[8] === 'Rejetee') continue;
+      var ts = row[3] ? new Date(row[3]).getTime() : 0;
+      if (!latest || ts > latest._ts) {
+        var synthese = {};
+        try { synthese = JSON.parse(row[7]); } catch(e) {}
+        latest = {
+          idSynthese: row[0],
+          date: formatDate(row[3]),
+          modele: row[4],
+          synthese: synthese,
+          statut: row[8],
+          _ts: ts
+        };
+      }
+    }
+
+    if (latest) delete latest._ts;
+    return latest;
+  } catch(e) {
+    return null;
+  }
+}

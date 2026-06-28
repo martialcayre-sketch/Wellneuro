@@ -487,6 +487,22 @@
         <option value="">— Sélectionner un patient —</option>
       </select>
       <div id="pr-results"></div>
+
+      <!-- Synthèse IA — Phase 2A -->
+      <div id="ia-zone" style="display:none" class="mt-4">
+        <span class="stitle d-block mb-3">
+          <i class="fas fa-brain me-1"></i> Synthèse IA
+        </span>
+        <div class="mb-3">
+          <button class="btn btn-teal" id="btn-gen-synthese" onclick="generateSynthese()">
+            <i class="fas fa-wand-magic-sparkles me-1"></i> Générer une synthèse IA
+          </button>
+          <span id="ia-spinner" class="ms-2" style="display:none">
+            <i class="fas fa-spinner fa-spin"></i> Analyse en cours…
+          </span>
+        </div>
+        <div id="ia-synthese"></div>
+      </div>
     </div>
 
     </div><!-- /tab-content -->
@@ -1484,10 +1500,26 @@ function doAssign() {
 
 function loadResults(email) {
   var container = document.getElementById('pr-results');
-  if (!email) { container.innerHTML = ''; return; }
+  var iaZone = document.getElementById('ia-zone');
+  var iaSynthese = document.getElementById('ia-synthese');
+  CURRENT_SYNTHESE = null;
+  if (!email) {
+    container.innerHTML = '';
+    iaZone.style.display = 'none';
+    iaSynthese.innerHTML = '';
+    return;
+  }
   container.innerHTML = '<p class="text-muted small">Chargement…</p>';
+  iaZone.style.display = 'none';
+  iaSynthese.innerHTML = '';
   google.script.run
-    .withSuccessHandler(renderResults)
+    .withSuccessHandler(function(list) {
+      renderResults(list);
+      if (Array.isArray(list) && list.length > 0) {
+        iaZone.style.display = 'block';
+        loadExistingSynthese(email);
+      }
+    })
     .withFailureHandler(function(e) {
       container.innerHTML = '<p class="text-danger small">' + e.message + '</p>';
     })
@@ -1673,6 +1705,161 @@ function confirmAssignPack(pack) {
       dateLimite: dateLim,
       notes: note
     });
+}
+
+// ═══════════════════ PRATICIEN — SYNTHÈSE IA ═══════════════════
+
+var CURRENT_SYNTHESE = null;
+
+function generateSynthese() {
+  var email = document.getElementById('r-patient').value;
+  if (!email) { alert('Sélectionnez un patient.'); return; }
+
+  var btn = document.getElementById('btn-gen-synthese');
+  var spinner = document.getElementById('ia-spinner');
+  var container = document.getElementById('ia-synthese');
+
+  btn.disabled = true;
+  spinner.style.display = 'inline';
+  container.innerHTML = '';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      if (r.error) {
+        container.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>' +
+          escHtml(r.error) + '</div>';
+        return;
+      }
+      CURRENT_SYNTHESE = r;
+      renderSynthese(r);
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      container.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>' +
+        escHtml(e.message) + '</div>';
+    })
+    .generateAISynthesisForPatient(email);
+}
+
+function loadExistingSynthese(email) {
+  if (!email) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.synthese) {
+        CURRENT_SYNTHESE = r;
+        renderSynthese(r);
+      }
+    })
+    .getLatestSynthesis(email);
+}
+
+function renderSynthese(r) {
+  var s = r.synthese;
+  if (!s) return;
+  var container = document.getElementById('ia-synthese');
+  var statut = r.statut || 'Brouillon_IA';
+  var statutBadge = statut === 'Validee_Praticien'
+    ? '<span class="badge bg-success">Validée</span>'
+    : statut === 'Rejetee'
+    ? '<span class="badge bg-danger">Rejetée</span>'
+    : '<span class="badge bg-warning text-dark">Brouillon IA</span>';
+
+  var html = '<div class="card">';
+  html += '<div class="card-header d-flex align-items-center gap-2">';
+  html += '<i class="fas fa-brain"></i> Synthèse IA ' + statutBadge;
+  html += '<span class="ms-auto small opacity-75">' + (r.date || '') + ' · ' + (r.modele || '') + '</span>';
+  html += '</div>';
+  html += '<div class="card-body p-3">';
+
+  // Avertissement
+  html += '<div class="alert alert-info py-2 small mb-3">' +
+    '<i class="fas fa-info-circle me-1"></i> ' +
+    escHtml(s.limites || 'Synthèse générée par IA — à valider par le praticien.') +
+    '</div>';
+
+  // Résumé praticien
+  if (s.resume_praticien) {
+    html += '<h6 class="fw-bold small text-uppercase text-muted mb-1">' +
+      '<i class="fas fa-stethoscope me-1"></i> Résumé praticien</h6>';
+    html += '<p class="mb-3">' + escHtml(s.resume_praticien) + '</p>';
+  }
+
+  // Axes prioritaires
+  if (s.axes_prioritaires && s.axes_prioritaires.length > 0) {
+    html += '<h6 class="fw-bold small text-uppercase text-muted mb-2">' +
+      '<i class="fas fa-crosshairs me-1"></i> Axes prioritaires</h6>';
+    s.axes_prioritaires.forEach(function(a) {
+      var color = a.niveau_priorite === 'eleve' ? 'danger'
+        : a.niveau_priorite === 'modere' ? 'warning' : 'info';
+      html += '<div class="mb-3 p-2 rounded" style="background:#f8f9fa;border-left:3px solid var(--bs-' + color + ')">';
+      html += '<div class="fw-semibold">' + escHtml(a.axe) +
+        ' <span class="badge bg-' + color + ' ms-1">' + escHtml(a.niveau_priorite) + '</span></div>';
+      if (a.arguments && a.arguments.length) {
+        html += '<ul class="small mb-1 mt-1">';
+        a.arguments.forEach(function(arg) { html += '<li>' + escHtml(arg) + '</li>'; });
+        html += '</ul>';
+      }
+      if (a.points_a_confirmer && a.points_a_confirmer.length) {
+        html += '<div class="small text-muted"><i class="fas fa-question-circle me-1"></i>À confirmer : ' +
+          a.points_a_confirmer.map(escHtml).join(' · ') + '</div>';
+      }
+      html += '</div>';
+    });
+  }
+
+  // Points de vigilance
+  if (s.points_de_vigilance && s.points_de_vigilance.length > 0) {
+    html += '<h6 class="fw-bold small text-uppercase text-muted mb-1">' +
+      '<i class="fas fa-exclamation-triangle me-1"></i> Points de vigilance</h6>';
+    html += '<ul class="small mb-3">';
+    s.points_de_vigilance.forEach(function(p) { html += '<li>' + escHtml(p) + '</li>'; });
+    html += '</ul>';
+  }
+
+  // Questions d'entretien
+  if (s.questions_entretien && s.questions_entretien.length > 0) {
+    html += '<h6 class="fw-bold small text-uppercase text-muted mb-1">' +
+      '<i class="fas fa-comments me-1"></i> Questions d\'entretien suggérées</h6>';
+    html += '<ol class="small mb-3">';
+    s.questions_entretien.forEach(function(q) { html += '<li>' + escHtml(q) + '</li>'; });
+    html += '</ol>';
+  }
+
+  // Narratif patient
+  if (s.narratif_patient) {
+    html += '<h6 class="fw-bold small text-uppercase text-muted mb-1">' +
+      '<i class="fas fa-user me-1"></i> Narratif patient</h6>';
+    html += '<div class="p-2 rounded small mb-3" style="background:#f0f9f0;border-left:3px solid var(--accent)">' +
+      escHtml(s.narratif_patient) + '</div>';
+  }
+
+  // Boutons de validation
+  if (statut === 'Brouillon_IA') {
+    html += '<div class="d-flex gap-2 mt-3">';
+    html += '<button class="btn btn-success btn-sm" onclick="validerSynthese()">' +
+      '<i class="fas fa-check me-1"></i> Valider la synthèse</button>';
+    html += '<button class="btn btn-outline-secondary btn-sm" onclick="generateSynthese()">' +
+      '<i class="fas fa-redo me-1"></i> Régénérer</button>';
+    html += '</div>';
+  }
+
+  html += '</div></div>';
+  container.innerHTML = html;
+}
+
+function validerSynthese() {
+  if (!CURRENT_SYNTHESE || !CURRENT_SYNTHESE.idSynthese) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.error) { alert(r.error); return; }
+      CURRENT_SYNTHESE.statut = 'Validee_Praticien';
+      renderSynthese(CURRENT_SYNTHESE);
+    })
+    .withFailureHandler(function(e) { alert(e.message); })
+    .validateSynthesis(CURRENT_SYNTHESE.idSynthese);
 }
 
 // ═══════════════════ DEBUG ═══════════════════

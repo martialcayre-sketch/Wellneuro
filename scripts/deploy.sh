@@ -32,7 +32,7 @@ fi
 
 # 4. Git commit
 echo "── 4/5 Commit Git…"
-git add src/gas/ scripts/ .claspignore .gitignore CLAUDE.md CHANGELOG.md docs/
+git add src/gas/ scripts/ prompts/ .claspignore .gitignore CLAUDE.md CHANGELOG.md docs/
 if git diff --cached --quiet; then
   echo "   Aucun changement à committer"
 else
