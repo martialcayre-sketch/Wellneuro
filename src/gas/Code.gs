@@ -18,9 +18,7 @@ const DEV_MULTI_ROLE_EMAILS = ['martialcayre@wellneuro.fr'];
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 function doGet(e) {
-  var assignId = (e && e.parameter && e.parameter.assign)
-    ? String(e.parameter.assign)
-    : '';
+  var assignId = sanitizeAssignId_((e && e.parameter && e.parameter.assign) || '');
   var output = HtmlService.createHtmlOutputFromFile('index')
     .setTitle('NutriConsult Pro — SIIN')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -29,6 +27,11 @@ function doGet(e) {
     output.append('<script>window.PRECONSULT_ASSIGN_ID=' + JSON.stringify(assignId) + ';<\/script>');
   }
   return output;
+}
+
+function sanitizeAssignId_(value) {
+  var assignId = String(value || '').trim();
+  return /^ASS\d{10,20}$/.test(assignId) ? assignId : '';
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -379,6 +382,7 @@ function sendPackAssignmentLinkToPatient_(patientEmail, packNom, count, dateLimi
 function sendReminders_() {
   var sh = getSheet('Assignations');
   if (!sh) { Logger.log('sendReminders_: feuille Assignations introuvable'); return 0; }
+  ensureAssignationsReminderColumn_(sh);
   var rows = sh.getDataRange().getValues();
   var now = new Date().getTime();
   var sent = 0;
@@ -421,6 +425,13 @@ function sendReminders_() {
   }
   Logger.log('sendReminders_ : ' + sent + ' rappel(s) envoyé(s)');
   return sent;
+}
+
+function ensureAssignationsReminderColumn_(sh) {
+  var headerCell = sh.getRange(3, 10);
+  if (!headerCell.getValue()) {
+    headerCell.setValue('ReminderSent');
+  }
 }
 
 /**
@@ -1264,7 +1275,7 @@ function testSyntheseIA() {
   // 1. Vérifier la clé API
   var props = PropertiesService.getScriptProperties();
   var apiKey = props.getProperty('ANTHROPIC_API_KEY');
-  Logger.log('ANTHROPIC_API_KEY présente : ' + (apiKey ? 'OUI (' + apiKey.substring(0, 10) + '...)' : 'NON'));
+  Logger.log('ANTHROPIC_API_KEY présente : ' + (apiKey ? 'OUI' : 'NON'));
   var model = props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-4-6';
   Logger.log('Modèle : ' + model);
 
@@ -1355,7 +1366,7 @@ function callClaudeForSynthesis_(userMessage) {
   var body = response.getContentText();
 
   if (code !== 200) {
-    Logger.log('callClaudeForSynthesis_ HTTP ' + code + ': ' + body.substring(0, 500));
+    Logger.log('callClaudeForSynthesis_ HTTP ' + code);
     throw new Error('Erreur API Claude (HTTP ' + code + '). Réessayez dans quelques instants.');
   }
 
@@ -1374,25 +1385,51 @@ function callClaudeForSynthesis_(userMessage) {
 
   var jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    Logger.log('callClaudeForSynthesis_ réponse brute (pas de JSON) : ' + text.substring(0, 1000));
+    Logger.log('callClaudeForSynthesis_ réponse brute (pas de JSON)');
     throw new Error('La réponse IA ne contient pas de JSON valide.');
   }
 
   var jsonStr = jsonMatch[0];
+  var obj;
   try {
-    return JSON.parse(jsonStr);
+    obj = JSON.parse(jsonStr);
   } catch(parseErr) {
-    Logger.log('callClaudeForSynthesis_ JSON invalide — tentative de nettoyage. Erreur: ' + parseErr.message);
-    Logger.log('callClaudeForSynthesis_ JSON brut (500 premiers chars) : ' + jsonStr.substring(0, 500));
-    // Nettoyage : trailing commas avant ] ou }
+    Logger.log('callClaudeForSynthesis_ JSON invalide — tentative de nettoyage.');
     jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
     try {
-      return JSON.parse(jsonStr);
+      obj = JSON.parse(jsonStr);
     } catch(e2) {
-      Logger.log('callClaudeForSynthesis_ nettoyage échoué : ' + e2.message);
       throw new Error('JSON invalide dans la réponse IA. Réessayez (régénérer).');
     }
   }
+
+  return validateSyntheseSchema_(obj);
+}
+
+function validateSyntheseSchema_(obj) {
+  if (!obj || typeof obj !== 'object') {
+    throw new Error('La réponse IA n\'est pas un objet JSON valide.');
+  }
+  if (!obj.resume_praticien || typeof obj.resume_praticien !== 'string') {
+    obj.resume_praticien = obj.resume_praticien || 'Résumé non disponible — à compléter par le praticien.';
+  }
+  if (!Array.isArray(obj.axes_prioritaires)) {
+    obj.axes_prioritaires = [];
+  }
+  if (!Array.isArray(obj.points_de_vigilance)) {
+    obj.points_de_vigilance = [];
+  }
+  if (!Array.isArray(obj.questions_entretien)) {
+    obj.questions_entretien = [];
+  }
+  if (!obj.narratif_patient || typeof obj.narratif_patient !== 'string') {
+    obj.narratif_patient = obj.narratif_patient || '';
+  }
+  if (!obj.limites) {
+    obj.limites = 'Synthèse générée par IA sans corpus SIIN complet — à valider par le praticien.';
+  }
+  obj._schema_version = 'v1';
+  return obj;
 }
 
 function buildSyntheseUserMessage_(results, patientPrenom, patientNom) {
@@ -1458,6 +1495,8 @@ function generateAISynthesisForPatient(patientEmail) {
       ''
     ]]);
 
+    logAuditSynthese_(idSynthese, patient.idPatient, model, 'v1', 'OK', '');
+
     return {
       success: true,
       idSynthese: idSynthese,
@@ -1467,8 +1506,40 @@ function generateAISynthesisForPatient(patientEmail) {
     };
   } catch(e) {
     Logger.log('generateAISynthesisForPatient error: ' + e.message);
+    try { logAuditSynthese_('', '', '', 'v1', 'Erreur', e.message); } catch(e2) {}
     return { error: e.message };
   }
+}
+
+var AUDIT_HEADERS = [
+  'Date_Generation', 'ID_Synthese', 'ID_Patient', 'Modele',
+  'Version_Prompt', 'Statut', 'Erreur_Technique_Courte'
+];
+
+function logAuditSynthese_(idSynthese, idPatient, modele, versionPrompt, statut, erreur) {
+  try {
+    var sh = getOrCreateSheet('Audit_Syntheses_IA', AUDIT_HEADERS);
+    var lastRow = Math.max(sh.getLastRow(), DATA_START);
+    sh.getRange(lastRow + 1, 1, 1, 7).setValues([[
+      new Date(),
+      idSynthese || '',
+      idPatient || '',
+      modele || '',
+      versionPrompt || '',
+      statut || '',
+      sanitizeAuditError_(erreur)
+    ]]);
+  } catch(e) {
+    Logger.log('logAuditSynthese_ error: ' + e.message);
+  }
+}
+
+function sanitizeAuditError_(erreur) {
+  return String(erreur || '')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/\b(?:PAT|ASS|SYN)\d{6,}\b/g, '[id]')
+    .substring(0, 200);
 }
 
 function validateSynthesis(idSynthese) {
@@ -1489,7 +1560,7 @@ function validateSynthesis(idSynthese) {
   }
 }
 
-function rejectSynthesis(idSynthese) {
+function rejectSynthesis(idSynthese, notes) {
   try {
     var sh = getSheet('Syntheses_IA');
     if (!sh) return { error: 'Feuille Syntheses_IA introuvable' };
@@ -1497,6 +1568,28 @@ function rejectSynthesis(idSynthese) {
     for (var i = DATA_START; i < rows.length; i++) {
       if (rows[i][0] === idSynthese) {
         sh.getRange(i + 1, 9).setValue('Rejetee');
+        if (notes) sh.getRange(i + 1, 11).setValue(notes);
+        return { success: true };
+      }
+    }
+    return { error: 'Synthèse introuvable' };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+function saveSyntheseNotes(idSynthese, notes) {
+  try {
+    var sh = getSheet('Syntheses_IA');
+    if (!sh) return { error: 'Feuille Syntheses_IA introuvable' };
+    var rows = sh.getDataRange().getValues();
+    for (var i = DATA_START; i < rows.length; i++) {
+      if (rows[i][0] === idSynthese) {
+        sh.getRange(i + 1, 11).setValue(notes || '');
+        var currentStatut = rows[i][8];
+        if (currentStatut === 'Validee_Praticien' && notes) {
+          sh.getRange(i + 1, 9).setValue('Corrigee_Praticien');
+        }
         return { success: true };
       }
     }
@@ -1529,6 +1622,7 @@ function getLatestSynthesis(patientEmail) {
           modele: row[4],
           synthese: synthese,
           statut: row[8],
+          notesPraticien: row[10] || '',
           _ts: ts
         };
       }

@@ -886,8 +886,9 @@ function renderPatientHome(list) {
     const badge   = isDone
       ? '<span class="badge bg-success">✓ Complété</span>'
       : '<span class="badge bg-warning text-dark">⏳ En attente</span>';
-    const click   = !isDone
-      ? `onclick="startQ('${a.idQuestionnaire}','${a.idAssignation}')"` : '';
+    const click = !isDone
+      ? 'onclick="startQ(' + JSON.stringify(a.idQuestionnaire || '') + ',' + JSON.stringify(a.idAssignation || '') + ')"'
+      : '';
 
     return `
       <div class="col-md-6">
@@ -899,16 +900,16 @@ function renderPatientHome(list) {
                   <i class="fas fa-clipboard-list fa-lg" style="color:var(--accent)"></i>
                 </div>
                 <div>
-                  <div class="fw-bold">${a.titre}</div>
+                  <div class="fw-bold">${escHtml(a.titre)}</div>
                   <div class="text-muted" style="font-size:.8rem">Questionnaire SIIN</div>
                 </div>
               </div>
               ${badge}
             </div>
             ${a.notesPraticien ? `<p class="text-info small mb-1">
-              <i class="fas fa-comment-dots me-1"></i>${a.notesPraticien}</p>` : ''}
+              <i class="fas fa-comment-dots me-1"></i>${escHtml(a.notesPraticien)}</p>` : ''}
             ${a.dateLimite ? `<p class="text-muted small mb-0">
-              <i class="fas fa-calendar-alt me-1"></i>À compléter avant le ${a.dateLimite}</p>` : ''}
+              <i class="fas fa-calendar-alt me-1"></i>À compléter avant le ${escHtml(a.dateLimite)}</p>` : ''}
           </div>
         </div>
       </div>`;
@@ -1075,7 +1076,7 @@ function qeRenderSection(idx) {
 
   const body = document.getElementById('qe-section-body');
   body.innerHTML = (section.description
-    ? '<div class="qe-section-desc">' + section.description + '</div>'
+    ? '<div class="qe-section-desc">' + escHtml(section.description) + '</div>'
     : '') +
     (section.questions || []).map(function(q) { return qeRenderQuestion(q); }).join('');
 
@@ -1093,58 +1094,59 @@ function qeRenderSection(idx) {
 }
 
 function qeRenderQuestion(q) {
-  const num   = '<span class="qe-question-num">' + (q.order || q.num || '') + '.</span> ';
-  const label = '<div class="qe-question-label">' + num + (q.label || q.texte || q.question || '') +
+  const qId = escHtml(q.id || '');
+  const num   = '<span class="qe-question-num">' + escHtml(q.order || q.num || '') + '.</span> ';
+  const label = '<div class="qe-question-label">' + num + escHtml(q.label || q.texte || q.question || '') +
     (q.required ? ' <span class="required-star">*</span>' : '') + '</div>';
-  const vmsg  = '<div class="qe-validation-msg" id="vm_' + q.id + '">Réponse requise</div>';
+  const vmsg  = '<div class="qe-validation-msg" id="vm_' + qId + '">Réponse requise</div>';
 
   if (q.type === 'likert' || q.type === 'radio') {
     const layout = (q.options && q.options.length > 4) ? 'qe-opt-vertical' : 'qe-options';
     const opts = (q.options || []).map(function(o) {
       return '<label class="qe-opt">' +
-        '<input type="radio" name="' + q.id + '" value="' + o.value + '">' +
-        o.label + '</label>';
+        '<input type="radio" name="' + qId + '" value="' + escHtml(o.value) + '">' +
+        escHtml(o.label) + '</label>';
     }).join('');
     return '<div class="qe-question"><div class="' + layout + '">' + label + opts + '</div>' + vmsg + '</div>';
   }
 
   if (q.type === 'select') {
     const opts = (q.options || []).map(function(o) {
-      return '<option value="' + o.value + '">' + o.label + '</option>';
+      return '<option value="' + escHtml(o.value) + '">' + escHtml(o.label) + '</option>';
     }).join('');
     return '<div class="qe-question">' + label +
-      '<select class="qe-select" name="' + q.id + '" id="qe_' + q.id + '">' +
+      '<select class="qe-select" name="' + qId + '" id="qe_' + qId + '">' +
       '<option value="">— Choisir —</option>' + opts + '</select>' + vmsg + '</div>';
   }
 
   if (q.type === 'number') {
     return '<div class="qe-question">' + label +
       '<div class="qe-number-wrap">' +
-      '<input type="number" class="qe-number" name="' + q.id + '" id="qe_' + q.id + '"' +
-      ' min="' + (q.min !== undefined ? q.min : 0) + '"' +
-      ' max="' + (q.max !== undefined ? q.max : 100) + '">' +
-      ((q.unit || q.unite) ? '<span class="text-muted small">' + (q.unit || q.unite) + '</span>' : '') +
+      '<input type="number" class="qe-number" name="' + qId + '" id="qe_' + qId + '"' +
+      ' min="' + escHtml(q.min !== undefined ? q.min : 0) + '"' +
+      ' max="' + escHtml(q.max !== undefined ? q.max : 100) + '">' +
+      ((q.unit || q.unite) ? '<span class="text-muted small">' + escHtml(q.unit || q.unite) + '</span>' : '') +
       '</div>' + vmsg + '</div>';
   }
 
   if (q.type === 'bristol') {
     var opts = (q.options || []).map(function(o) {
       return '<label class="qe-opt">' +
-        '<input type="radio" name="' + q.id + '" value="' + o.value + '">' +
-        (o.icon ? o.icon + ' ' : '') + o.label + '</label>';
+        '<input type="radio" name="' + qId + '" value="' + escHtml(o.value) + '">' +
+        (o.icon ? escHtml(o.icon) + ' ' : '') + escHtml(o.label) + '</label>';
     }).join('');
     return '<div class="qe-question qe-bristol"><div class="qe-opt-vertical">' + label + opts + '</div>' + vmsg + '</div>';
   }
 
   if (q.type === 'boolean') {
     return '<div class="qe-question"><div class="qe-options">' + label +
-      '<label class="qe-opt"><input type="radio" name="' + q.id + '" value="1"> Oui</label>' +
-      '<label class="qe-opt"><input type="radio" name="' + q.id + '" value="0"> Non</label>' +
+      '<label class="qe-opt"><input type="radio" name="' + qId + '" value="1"> Oui</label>' +
+      '<label class="qe-opt"><input type="radio" name="' + qId + '" value="0"> Non</label>' +
       '</div>' + vmsg + '</div>';
   }
 
   return '<div class="qe-question">' + label +
-    '<input type="text" class="form-control mt-2" name="' + q.id + '" id="qe_' + q.id + '">' +
+    '<input type="text" class="form-control mt-2" name="' + qId + '" id="qe_' + qId + '">' +
     vmsg + '</div>';
 }
 
@@ -1260,8 +1262,8 @@ function qeShowScore(r) {
     var colorMap = {success:'alert-success', info:'alert-info', warning:'alert-warning', danger:'alert-danger', dark:'alert-dark', primary:'alert-primary'};
     var alertClass = colorMap[scores.interpretation.color] || 'alert-info';
     interpEl.className = 'alert mb-3 py-2 px-3 ' + alertClass;
-    interpEl.innerHTML = '<strong>' + scores.interpretation.label + '</strong>' +
-      (scores.interpretation.protocol ? '<br><small class="text-muted">' + scores.interpretation.protocol + '</small>' : '');
+    interpEl.innerHTML = '<strong>' + escHtml(scores.interpretation.label) + '</strong>' +
+      (scores.interpretation.protocol ? '<br><small class="text-muted">' + escHtml(scores.interpretation.protocol) + '</small>' : '');
   } else {
     interpEl.className = 'alert mb-3 py-2 px-3 alert-success';
     interpEl.textContent = 'Merci — vos réponses ont été transmises à votre praticien.';
@@ -1278,9 +1280,9 @@ function qeShowScore(r) {
       var color = pct >= 70 ? '#dc3545' : pct >= 40 ? '#f39c12' : '#27ae60';
       var interpText = val.interpretation && val.interpretation.label ? ' — ' + val.interpretation.label : '';
       return '<div class="qs-subscore">' +
-        '<div><strong>' + (val.label || val.id) + '</strong>' + interpText +
+        '<div><strong>' + escHtml(val.label || val.id) + '</strong>' + escHtml(interpText) +
         '<div class="qs-progress"><div class="qs-bar" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
-        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + sc + '/' + max + '</span>' +
+        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + escHtml(sc) + '/' + escHtml(max) + '</span>' +
         '</div>';
     }).join('');
   }
@@ -1292,9 +1294,9 @@ function qeShowScore(r) {
       var pct = max > 0 ? Math.min(100, Math.round(((c.val || 0) / max) * 100)) : 0;
       var color = pct >= 70 ? '#dc3545' : pct >= 40 ? '#f39c12' : '#27ae60';
       return '<div class="qs-subscore">' +
-        '<div><strong>' + c.label + '</strong>' +
+        '<div><strong>' + escHtml(c.label) + '</strong>' +
         '<div class="qs-progress"><div class="qs-bar" style="width:' + pct + '%;background:' + color + '"></div></div></div>' +
-        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + (c.val || 0) + '/' + max + '</span>' +
+        '<span class="qs-badge" style="background:' + color + '20;color:' + color + '">' + escHtml(c.val || 0) + '/' + escHtml(max) + '</span>' +
         '</div>';
     }).join('');
   }
@@ -1302,11 +1304,11 @@ function qeShowScore(r) {
   // Phases (Test 5 mots Dubois)
   if (scores.phases && Array.isArray(scores.phases)) {
     subEl.innerHTML += scores.phases.map(function(p) {
-      return '<div class="qs-subscore"><div><strong>' + p.label + '</strong></div>' +
-        '<span class="qs-badge bg-light text-dark border">' + p.total + '/' + p.maxTotal + '</span></div>';
+      return '<div class="qs-subscore"><div><strong>' + escHtml(p.label) + '</strong></div>' +
+        '<span class="qs-badge bg-light text-dark border">' + escHtml(p.total) + '/' + escHtml(p.maxTotal) + '</span></div>';
     }).join('');
     if (scores.alertMA && scores.alertLabel) {
-      subEl.innerHTML += '<div class="alert alert-danger py-2 px-3 mt-2" style="font-size:.85rem">' + scores.alertLabel + '</div>';
+      subEl.innerHTML += '<div class="alert alert-danger py-2 px-3 mt-2" style="font-size:.85rem">' + escHtml(scores.alertLabel) + '</div>';
     }
   }
 
@@ -1314,7 +1316,7 @@ function qeShowScore(r) {
   if (scores.categories && Array.isArray(scores.categories)) {
     subEl.innerHTML += scores.categories.map(function(c) {
       var badge = c.positive ? '<span class="badge bg-danger">Positif</span>' : '<span class="badge bg-success">Négatif</span>';
-      return '<div class="qs-subscore"><div><strong>' + c.label + '</strong></div>' + badge + '</div>';
+      return '<div class="qs-subscore"><div><strong>' + escHtml(c.label) + '</strong></div>' + badge + '</div>';
     }).join('');
   }
 
@@ -1341,7 +1343,7 @@ function loadPraticienHome() {
 
       // Populate patient selects
       var patOpts = (d.patients || []).map(function(p) {
-        return '<option value="' + p.email + '">' + p.prenom + ' ' + p.nom + '</option>';
+        return '<option value="' + escHtml(p.email) + '">' + escHtml(p.prenom) + ' ' + escHtml(p.nom) + '</option>';
       }).join('');
       document.getElementById('a-patient').innerHTML =
         '<option value="">— Sélectionner un patient —</option>' + patOpts;
@@ -1375,7 +1377,7 @@ function buildCatFilters(list) {
     var btn = document.createElement('button');
     btn.className = 'cat-chip';
     btn.textContent = cat;
-    btn.setAttribute('onclick', 'filterCat(this,\'' + cat.replace(/'/g, "\\'") + '\')');
+    btn.onclick = function() { filterCat(btn, cat); };
     container.appendChild(btn);
   });
 }
@@ -1394,7 +1396,7 @@ function populateQSelect(list) {
   var sel = document.getElementById('a-questionnaire');
   sel.innerHTML = '<option value="">— Sélectionner —</option>' +
     list.map(function(q) {
-      return '<option value="' + q.idQuestionnaire + '">' + q.titre + '</option>';
+      return '<option value="' + escHtml(q.idQuestionnaire) + '">' + escHtml(q.titre) + '</option>';
     }).join('');
 }
 
@@ -1412,9 +1414,9 @@ function renderPatients(list) {
       '<div class="card p-3"><div class="d-flex align-items-center gap-3">' +
       '<div class="rounded-circle d-flex align-items-center justify-content-center" ' +
       'style="width:42px;height:42px;background:var(--primary);color:#fff;font-weight:bold">' +
-      initials + '</div>' +
-      '<div><div class="fw-semibold">' + p.prenom + ' ' + p.nom + '</div>' +
-      '<div class="text-muted small">' + p.email + '</div></div>' +
+      escHtml(initials) + '</div>' +
+      '<div><div class="fw-semibold">' + escHtml(p.prenom) + ' ' + escHtml(p.nom) + '</div>' +
+      '<div class="text-muted small">' + escHtml(p.email) + '</div></div>' +
       '</div></div></div>';
   }).join('');
 }
@@ -1431,12 +1433,12 @@ function renderPacks(packs) {
   container.innerHTML = packs.map(function(p) {
     var count = (p.qids || []).length;
     return '<div class="col-md-4 col-sm-6">' +
-      '<div class="card p-3 h-100" style="cursor:pointer" onclick="openPackModal(\'' + p.idPack + '\')">' +
+      '<div class="card p-3 h-100" style="cursor:pointer" onclick="openPackModal(' + JSON.stringify(p.idPack || '') + ')">' +
       '<div class="d-flex align-items-start gap-2">' +
       '<i class="fas fa-box-open mt-1" style="color:var(--accent)"></i>' +
-      '<div><div class="fw-semibold">' + p.nom + '</div>' +
-      '<div class="text-muted small">' + (p.thematique || '') + '</div>' +
-      '<div class="text-muted small mt-1">' + (p.description || '') + '</div>' +
+      '<div><div class="fw-semibold">' + escHtml(p.nom) + '</div>' +
+      '<div class="text-muted small">' + escHtml(p.thematique || '') + '</div>' +
+      '<div class="text-muted small mt-1">' + escHtml(p.description || '') + '</div>' +
       '<span class="badge bg-light text-dark border mt-2">' +
       '<i class="fas fa-list me-1"></i>' + count + ' questionnaire' + (count > 1 ? 's' : '') +
       '</span></div></div></div></div>';
@@ -1459,9 +1461,9 @@ function renderAssignations(list) {
       var badge = a.statut === 'Complété'
         ? '<span class="badge bg-success">Complété</span>'
         : '<span class="badge bg-warning text-dark">En attente</span>';
-      return '<tr><td>' + (a.emailPatient || '') + '</td>' +
-        '<td><span class="fw-semibold">' + (a.titreQuestionnaire || a.idQuestionnaire || '') + '</span></td>' +
-        '<td class="text-muted small">' + (a.dateAssignation || '') + '</td>' +
+      return '<tr><td>' + escHtml(a.emailPatient || '') + '</td>' +
+        '<td><span class="fw-semibold">' + escHtml(a.titreQuestionnaire || a.idQuestionnaire || '') + '</span></td>' +
+        '<td class="text-muted small">' + escHtml(a.dateAssignation || '') + '</td>' +
         '<td>' + badge + '</td></tr>';
     }).join('') +
     '</tbody></table>';
@@ -1521,7 +1523,7 @@ function loadResults(email) {
       }
     })
     .withFailureHandler(function(e) {
-      container.innerHTML = '<p class="text-danger small">' + e.message + '</p>';
+      container.innerHTML = '<p class="text-danger small">' + escHtml(e.message) + '</p>';
     })
     .getQuestionnaireResults(email);
 }
@@ -1535,13 +1537,13 @@ function renderResults(list) {
   container.innerHTML = list.map(function(r) {
     var sc = r.scores || {};
     var total = sc.total !== undefined
-      ? '<span class="badge bg-primary ms-2">' + sc.total + (sc.maxTotal ? ' / ' + sc.maxTotal : '') + '</span>'
+      ? '<span class="badge bg-primary ms-2">' + escHtml(sc.total) + (sc.maxTotal ? ' / ' + escHtml(sc.maxTotal) : '') + '</span>'
       : '';
     var interp = '';
     if (sc.interpretation && sc.interpretation.label) {
       interp = '<div class="mt-2 small p-2 rounded" style="background:#f0f9ff;border-left:3px solid var(--accent)">' +
-        sc.interpretation.label +
-        (sc.interpretation.protocol ? '<br><em class="text-muted">' + sc.interpretation.protocol + '</em>' : '') +
+        escHtml(sc.interpretation.label) +
+        (sc.interpretation.protocol ? '<br><em class="text-muted">' + escHtml(sc.interpretation.protocol) + '</em>' : '') +
         '</div>';
     }
     var subScoresHtml = '';
@@ -1551,16 +1553,16 @@ function renderResults(list) {
         var sVal = s.scaled !== undefined ? s.scaled : s.total;
         var sMax = s.maxScaled || s.max || '';
         var sInterp = s.interpretation && s.interpretation.label ? ' — ' + s.interpretation.label : '';
-        return '<div class="small text-muted">' + s.label + ' : ' + sVal + (sMax ? '/' + sMax : '') + sInterp + '</div>';
+        return '<div class="small text-muted">' + escHtml(s.label) + ' : ' + escHtml(sVal) + (sMax ? '/' + escHtml(sMax) : '') + escHtml(sInterp) + '</div>';
       }).join('') + '</div>';
     }
     return '<div class="card mb-3 p-3">' +
       '<div class="d-flex align-items-center gap-2 mb-1">' +
       '<i class="fas fa-clipboard-check" style="color:var(--accent)"></i>' +
-      '<span class="fw-semibold">' + r.titre + '</span>' + total +
-      '<span class="text-muted small ms-auto">' + (r.date || '') + '</span>' +
+      '<span class="fw-semibold">' + escHtml(r.titre) + '</span>' + total +
+      '<span class="text-muted small ms-auto">' + escHtml(r.date || '') + '</span>' +
       '</div>' + interp + subScoresHtml +
-      (r.interpretation && !interp ? '<div class="text-muted small mt-1">' + r.interpretation + '</div>' : '') +
+      (r.interpretation && !interp ? '<div class="text-muted small mt-1">' + escHtml(r.interpretation) + '</div>' : '') +
       '</div>';
   }).join('');
 }
@@ -1607,14 +1609,14 @@ function openPackBuilder() {
     var icon = CAT_ICON[cat] || 'fas fa-folder';
     var items = cats[cat].map(function(q) {
       return '<div class="form-check mb-1">' +
-        '<input class="form-check-input pb-check" type="checkbox" value="' + q.idQuestionnaire +
-        '" id="pb_' + q.idQuestionnaire + '" onchange="updatePbSelection()">' +
-        '<label class="form-check-label small" for="pb_' + q.idQuestionnaire + '">' + q.titre + '</label>' +
+        '<input class="form-check-input pb-check" type="checkbox" value="' + escHtml(q.idQuestionnaire) +
+        '" id="pb_' + escHtml(q.idQuestionnaire) + '" onchange="updatePbSelection()">' +
+        '<label class="form-check-label small" for="pb_' + escHtml(q.idQuestionnaire) + '">' + escHtml(q.titre) + '</label>' +
         '</div>';
     }).join('');
     return '<div class="mb-4">' +
       '<div class="fw-bold text-muted small text-uppercase mb-2 px-1">' +
-      '<i class="' + icon + ' me-1"></i>' + cat + '</div>' +
+      '<i class="' + escHtml(icon) + ' me-1"></i>' + escHtml(cat) + '</div>' +
       items + '</div>';
   }).join('');
 
@@ -1635,7 +1637,7 @@ function updatePbSelection() {
     document.getElementById('pb-selection').innerHTML = checked.map(function(cb) {
       var q = ALL_QUESTIONNAIRES.find(function(x) { return x.idQuestionnaire === cb.value; });
       return '<div class="mb-1"><i class="fas fa-check text-success me-1"></i>' +
-        (q ? q.titre : cb.value) + '</div>';
+        escHtml(q ? q.titre : cb.value) + '</div>';
     }).join('');
   }
 }
@@ -1664,13 +1666,13 @@ function openPackModal(idPack) {
   if (!pack) return;
 
   document.getElementById('modal-pack-title').innerHTML =
-    '<i class="fas fa-box-open me-2"></i>' + pack.nom;
+    '<i class="fas fa-box-open me-2"></i>' + escHtml(pack.nom);
   document.getElementById('modal-pack-desc').textContent = pack.description || '';
   document.getElementById('btn-confirm-pack').onclick = function() { confirmAssignPack(pack); };
   document.getElementById('modal-pack-qs').innerHTML = (pack.qids || []).map(function(id) {
     var q = ALL_QUESTIONNAIRES.find(function(x) { return x.idQuestionnaire === id; });
     return '<div class="small mb-1"><i class="fas fa-check-circle text-success me-1"></i>' +
-      (q ? q.titre : id) + '</div>';
+      escHtml(q ? q.titre : id) + '</div>';
   }).join('');
 
   bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPack')).show();
@@ -1763,6 +1765,8 @@ function renderSynthese(r) {
   var statut = r.statut || 'Brouillon_IA';
   var statutBadge = statut === 'Validee_Praticien'
     ? '<span class="badge bg-success">Validée</span>'
+    : statut === 'Corrigee_Praticien'
+    ? '<span class="badge bg-info">Corrigée</span>'
     : statut === 'Rejetee'
     ? '<span class="badge bg-danger">Rejetée</span>'
     : '<span class="badge bg-warning text-dark">Brouillon IA</span>';
@@ -1770,7 +1774,7 @@ function renderSynthese(r) {
   var html = '<div class="card">';
   html += '<div class="card-header d-flex align-items-center gap-2">';
   html += '<i class="fas fa-brain"></i> Synthèse IA ' + statutBadge;
-  html += '<span class="ms-auto small opacity-75">' + (r.date || '') + ' · ' + (r.modele || '') + '</span>';
+  html += '<span class="ms-auto small opacity-75">' + escHtml(r.date || '') + ' · ' + escHtml(r.modele || '') + '</span>';
   html += '</div>';
   html += '<div class="card-body p-3">';
 
@@ -1836,11 +1840,24 @@ function renderSynthese(r) {
       escHtml(s.narratif_patient) + '</div>';
   }
 
+  // Notes praticien
+  html += '<h6 class="fw-bold small text-uppercase text-muted mb-1 mt-3">' +
+    '<i class="fas fa-pen me-1"></i> Notes praticien</h6>';
+  html += '<textarea id="synthese-notes" class="form-control form-control-sm mb-2" rows="3" ' +
+    'placeholder="Annotations, corrections, observations…">' +
+    escHtml(r.notesPraticien || '') + '</textarea>';
+  if (statut !== 'Brouillon_IA') {
+    html += '<button class="btn btn-outline-secondary btn-sm mb-3" onclick="sauverNotesSynthese()">' +
+      '<i class="fas fa-save me-1"></i> Enregistrer les notes</button>';
+  }
+
   // Boutons de validation
   if (statut === 'Brouillon_IA') {
-    html += '<div class="d-flex gap-2 mt-3">';
+    html += '<div class="d-flex gap-2 mt-2">';
     html += '<button class="btn btn-success btn-sm" onclick="validerSynthese()">' +
       '<i class="fas fa-check me-1"></i> Valider la synthèse</button>';
+    html += '<button class="btn btn-danger btn-sm" onclick="rejeterSynthese()">' +
+      '<i class="fas fa-times me-1"></i> Rejeter</button>';
     html += '<button class="btn btn-outline-secondary btn-sm" onclick="generateSynthese()">' +
       '<i class="fas fa-redo me-1"></i> Régénérer</button>';
     html += '</div>';
@@ -1852,6 +1869,11 @@ function renderSynthese(r) {
 
 function validerSynthese() {
   if (!CURRENT_SYNTHESE || !CURRENT_SYNTHESE.idSynthese) return;
+  var notes = (document.getElementById('synthese-notes') || {}).value || '';
+  if (notes) {
+    google.script.run.saveSyntheseNotes(CURRENT_SYNTHESE.idSynthese, notes);
+    CURRENT_SYNTHESE.notesPraticien = notes;
+  }
   google.script.run
     .withSuccessHandler(function(r) {
       if (r.error) { alert(r.error); return; }
@@ -1860,6 +1882,40 @@ function validerSynthese() {
     })
     .withFailureHandler(function(e) { alert(e.message); })
     .validateSynthesis(CURRENT_SYNTHESE.idSynthese);
+}
+
+function rejeterSynthese() {
+  if (!CURRENT_SYNTHESE || !CURRENT_SYNTHESE.idSynthese) return;
+  var notes = (document.getElementById('synthese-notes') || {}).value || '';
+  if (!notes) {
+    alert('Merci d\'indiquer une raison dans les notes praticien avant de rejeter.');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.error) { alert(r.error); return; }
+      CURRENT_SYNTHESE.statut = 'Rejetee';
+      CURRENT_SYNTHESE.notesPraticien = notes;
+      renderSynthese(CURRENT_SYNTHESE);
+    })
+    .withFailureHandler(function(e) { alert(e.message); })
+    .rejectSynthesis(CURRENT_SYNTHESE.idSynthese, notes);
+}
+
+function sauverNotesSynthese() {
+  if (!CURRENT_SYNTHESE || !CURRENT_SYNTHESE.idSynthese) return;
+  var notes = (document.getElementById('synthese-notes') || {}).value || '';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.error) { alert(r.error); return; }
+      CURRENT_SYNTHESE.notesPraticien = notes;
+      if (CURRENT_SYNTHESE.statut === 'Validee_Praticien' && notes) {
+        CURRENT_SYNTHESE.statut = 'Corrigee_Praticien';
+      }
+      renderSynthese(CURRENT_SYNTHESE);
+    })
+    .withFailureHandler(function(e) { alert(e.message); })
+    .saveSyntheseNotes(CURRENT_SYNTHESE.idSynthese, notes);
 }
 
 // ═══════════════════ DEBUG ═══════════════════
@@ -2022,7 +2078,8 @@ function escHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ═══════════════════ FIN MODE LECTURE PRATICIEN ═══════════════════
