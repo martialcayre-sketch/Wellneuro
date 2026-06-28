@@ -30,7 +30,6 @@
       "Bash(clasp login *)",
       "Read(//home/codespace/**)",
       "Bash(git ls-files *)",
-      "Bash(node /workspaces/nutriconsult-nnpp2-gas-mvp/test-qe.js)",
       "Bash(git rm *)",
       "Bash(npx clasp *)",
       "Bash(npm ls *)",

@@ -341,6 +341,17 @@ La Phase 3 peut etre consideree bouclee quand :
 - Import massif de PDF SIIN.
 - Migration Next.js, PostgreSQL, Auth0 ou hebergement HDS.
 
+## Consolidation code (2026-06-28)
+
+Verification automatisee :
+
+- syntaxe JS `Code.gs` : OK ;
+- syntaxe JS extraite de `index.html` : OK ;
+- `check_no_secrets.sh` : OK ;
+- coherence frontend/backend : toutes les fonctions appelees par `google.script.run` existent cote serveur ;
+- `CHANGELOG.md` mis a jour (Phases 1, 2 et 3) ;
+- `docs/checklist_tests_end_to_end.md` mis a jour (Phases 1, 2, 3 et securite).
+
 ## Recommandation avant deploiement
 
 Ne plus ajouter de fonctionnalite Phase 3 avant le premier test reel.
@@ -352,7 +363,7 @@ Ordre recommande :
 3. pousser vers Apps Script avec `clasp push` ;
 4. creer une version ;
 5. deployer sur le deployment existant ;
-6. tester avec patient fictif ;
+6. tester avec patient fictif en suivant `docs/checklist_tests_end_to_end.md` ;
 7. noter les resultats ;
 8. corriger uniquement les bugs observes ;
-9. mettre a jour `CHANGELOG.md`.
+9. mettre a jour `CHANGELOG.md` avec la version GAS deployee.
