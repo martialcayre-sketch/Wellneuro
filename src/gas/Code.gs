@@ -236,19 +236,20 @@ function updateAssignationStatus(idAssignation, statut) {
  * Envoi transactionnel sans échange (documents/liens praticien -> patient).
  * Priorité: alias noreply@wellneuro.fr, fallback noReply.
  */
-function sendNoReplyEmailToPatient_(patientEmail, sujet, corps) {
+function sendNoReplyEmailToPatient_(patientEmail, sujet, corps, extraOptions) {
+  var opts = { from: MAILBOX_NOREPLY, name: 'NutriConsult', replyTo: MAILBOX_NOREPLY };
+  if (extraOptions) {
+    for (var k in extraOptions) { opts[k] = extraOptions[k]; }
+  }
   try {
-    GmailApp.sendEmail(patientEmail, sujet, corps, {
-      from: MAILBOX_NOREPLY,
-      name: 'NutriConsult',
-      replyTo: MAILBOX_NOREPLY
-    });
+    GmailApp.sendEmail(patientEmail, sujet, corps, opts);
   } catch (e) {
     Logger.log('sendNoReplyEmailToPatient_ alias fallback: ' + e.message);
-    MailApp.sendEmail(patientEmail, sujet, corps, {
-      name: 'NutriConsult',
-      noReply: true
-    });
+    var fallback = { name: 'NutriConsult', noReply: true };
+    if (extraOptions) {
+      for (var k in extraOptions) { fallback[k] = extraOptions[k]; }
+    }
+    MailApp.sendEmail(patientEmail, sujet, corps, fallback);
   }
 }
 
@@ -1597,6 +1598,290 @@ function saveSyntheseNotes(idSynthese, notes) {
   } catch(e) {
     return { error: e.message };
   }
+}
+
+function generateBookletHTML(idSynthese) {
+  try {
+    var sh = getSheet('Syntheses_IA');
+    if (!sh) return { error: 'Feuille Syntheses_IA introuvable' };
+    var rows = sh.getDataRange().getValues();
+    var row = null;
+    for (var i = DATA_START; i < rows.length; i++) {
+      if (rows[i][0] === idSynthese) { row = rows[i]; break; }
+    }
+    if (!row) return { error: 'Synthèse introuvable' };
+
+    var statut = row[8];
+    if (statut !== 'Validee_Praticien' && statut !== 'Corrigee_Praticien') {
+      return { error: 'La synthèse doit être validée par le praticien avant de préparer le booklet.' };
+    }
+
+    var synthese = {};
+    try {
+      synthese = JSON.parse(row[7]);
+    } catch(e) {
+      return { error: 'Synthèse illisible : régénérez la synthèse IA avant de préparer le booklet.' };
+    }
+    var validation = validateBookletSynthese_(synthese);
+    if (validation.error) return validation;
+    var patient = getPatientInfo_(row[2]);
+    var patientNom = patient ? (patient.prenom + ' ' + patient.nom) : '';
+    var dateDocument = formatDate(row[9] || row[3]);
+    var notesPraticien = row[10] || '';
+    var envoiInfo = getBookletSendInfo_(row[0]);
+
+    var html = buildBookletHTML_(patientNom, dateDocument, synthese, notesPraticien);
+    return {
+      success: true,
+      html: html,
+      patientEmail: row[2],
+      patientNom: patientNom,
+      idPatient: row[1],
+      dateDocument: dateDocument,
+      alreadySent: envoiInfo.sent,
+      lastSentDate: envoiInfo.lastSentDate,
+      sentEmailMasked: envoiInfo.emailMasque
+    };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+var BOOKLET_ENVOIS_HEADERS = [
+  'Date_Envoi', 'ID_Synthese', 'ID_Patient', 'Email_Patient_Masque',
+  'Statut', 'Operation', 'Relecture_Confirmee', 'Erreur_Technique_Courte'
+];
+
+function sendBookletToPatient(idSynthese, forceSend, reviewConfirmed) {
+  var result = null;
+  try {
+    if (reviewConfirmed !== true) {
+      logBookletEnvoi_(idSynthese, '', '', 'Erreur', 'Blocage_Relecture', false, 'Relecture praticien non confirmée.');
+      return { error: 'La relecture praticien doit être confirmée avant l\'envoi patient.' };
+    }
+
+    result = generateBookletHTML(idSynthese);
+    if (result.error) {
+      logBookletEnvoi_(idSynthese, '', '', 'Erreur', 'Preparation', reviewConfirmed, result.error);
+      return result;
+    }
+
+    var patientEmail = result.patientEmail;
+    if (!patientEmail) {
+      logBookletEnvoi_(idSynthese, result.idPatient, '', 'Erreur', 'Preparation', reviewConfirmed, 'Email patient introuvable.');
+      return { error: 'Email patient introuvable.' };
+    }
+
+    if (!forceSend && hasBookletAlreadyBeenSent_(idSynthese)) {
+      logBookletEnvoi_(idSynthese, result.idPatient, patientEmail, 'Confirmation_Requise', 'Renvoi', reviewConfirmed, 'Booklet déjà envoyé.');
+      return {
+        needsConfirmation: true,
+        warning: 'Ce booklet a déjà été envoyé. Confirmez le renvoi si nécessaire.',
+        email: patientEmail
+      };
+    }
+
+    var sujet = 'Votre bilan neuronutritionnel validé — NutriConsult';
+    var corps = 'Bonjour,\n\n'
+      + 'Votre praticien vous transmet votre bilan neuronutritionnel NutriConsult.\n'
+      + 'Ce document a été préparé après validation humaine et ne constitue pas un diagnostic médical.\n\n'
+      + 'Bien cordialement,\n'
+      + 'L\'équipe NutriConsult';
+    sendNoReplyEmailToPatient_(patientEmail, sujet, corps, {
+      htmlBody: result.html
+    });
+
+    logBookletEnvoi_(idSynthese, result.idPatient, patientEmail, 'Envoye', forceSend ? 'Renvoi' : 'Envoi', reviewConfirmed, '');
+    return { success: true, email: patientEmail };
+  } catch(e) {
+    logBookletEnvoi_(idSynthese, result && result.idPatient, result && result.patientEmail, 'Erreur', forceSend ? 'Renvoi' : 'Envoi', reviewConfirmed, e.message);
+    Logger.log('sendBookletToPatient error: ' + sanitizeAuditError_(e.message));
+    return { error: e.message };
+  }
+}
+
+function logBookletEnvoi_(idSynthese, idPatient, patientEmail, statut, operation, reviewConfirmed, erreur) {
+  try {
+    var sh = getOrCreateSheet('Booklet_Envois', BOOKLET_ENVOIS_HEADERS);
+    ensureSheetHeaders_(sh, BOOKLET_ENVOIS_HEADERS);
+    var lastRow = Math.max(sh.getLastRow(), DATA_START);
+    sh.getRange(lastRow + 1, 1, 1, 8).setValues([[
+      new Date(),
+      idSynthese || '',
+      idPatient || '',
+      maskEmail_(patientEmail),
+      statut || '',
+      operation || '',
+      reviewConfirmed === true,
+      sanitizeAuditError_(erreur)
+    ]]);
+  } catch(e) {
+    Logger.log('logBookletEnvoi_ error: ' + sanitizeAuditError_(e.message));
+  }
+}
+
+function ensureSheetHeaders_(sh, headers) {
+  var current = sh.getRange(3, 1, 1, headers.length).getValues()[0];
+  var needsUpdate = false;
+  for (var i = 0; i < headers.length; i++) {
+    if (current[i] !== headers[i]) { needsUpdate = true; break; }
+  }
+  if (needsUpdate) {
+    sh.getRange(3, 1, 1, headers.length).setValues([headers]);
+    sh.getRange(3, 1, 1, headers.length).setFontWeight('bold').setBackground('#1a3a5c').setFontColor('#ffffff');
+  }
+}
+
+function getBookletSendInfo_(idSynthese) {
+  var sh = getSheet('Booklet_Envois');
+  if (!sh) return { sent: false, lastSentDate: '', emailMasque: '' };
+  var rows = sh.getDataRange().getValues();
+  for (var i = rows.length - 1; i >= DATA_START; i--) {
+    if (rows[i][1] === idSynthese && rows[i][4] === 'Envoye') {
+      return {
+        sent: true,
+        lastSentDate: formatDate(rows[i][0]),
+        emailMasque: rows[i][3] || ''
+      };
+    }
+  }
+  return { sent: false, lastSentDate: '', emailMasque: '' };
+}
+
+function hasBookletAlreadyBeenSent_(idSynthese) {
+  return getBookletSendInfo_(idSynthese).sent;
+}
+
+function maskEmail_(email) {
+  var normalized = normalizeEmail_(email);
+  var parts = normalized.split('@');
+  if (parts.length !== 2 || !parts[0]) return '';
+  var prefix = parts[0].substring(0, 2);
+  return prefix + '***@' + parts[1];
+}
+
+function validateBookletSynthese_(s) {
+  if (!s || typeof s !== 'object') {
+    return { error: 'Synthèse invalide : impossible de préparer le booklet.' };
+  }
+  var hasNarratif = String(s.narratif_patient || '').trim().length >= 30;
+  var hasAxes = Array.isArray(s.axes_prioritaires) && s.axes_prioritaires.some(function(a) {
+    return a && String(a.axe || '').trim();
+  });
+  var hasVigilance = Array.isArray(s.points_de_vigilance) && s.points_de_vigilance.some(function(p) {
+    return String(p || '').trim();
+  });
+  if (!hasNarratif && !hasAxes && !hasVigilance) {
+    return { error: 'Synthèse trop incomplète : régénérez ou complétez la synthèse avant de préparer le booklet.' };
+  }
+  return { success: true };
+}
+
+function buildBookletHTML_(patientNom, dateGeneration, s, notesPraticien) {
+  var h = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">';
+  h += '<meta name="viewport" content="width=device-width,initial-scale=1">';
+  h += '<title>Bilan NutriConsult — ' + escapeHtml_(patientNom) + '</title>';
+  h += '<style>';
+  h += 'body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;color:#1a1a1a;line-height:1.6}';
+  h += '.page-header{text-align:center;border-bottom:2px solid #1a3a5c;padding-bottom:20px;margin-bottom:30px}';
+  h += '.page-header h1{color:#1a3a5c;font-size:1.5em;margin:0}';
+  h += '.page-header .subtitle{color:#666;font-size:0.9em;margin-top:5px}';
+  h += '.section{margin-bottom:25px}';
+  h += '.section h2{color:#1a3a5c;font-size:1.1em;border-bottom:1px solid #ddd;padding-bottom:5px}';
+  h += '.priority{padding:10px 15px;margin:8px 0;border-left:3px solid #1a3a5c;background:#f8f9fa;border-radius:0 4px 4px 0}';
+  h += '.priority.high{border-left-color:#c0392b}';
+  h += '.priority.moderate{border-left-color:#e67e22}';
+  h += '.priority.low{border-left-color:#3498db}';
+  h += '.priority strong{display:block;margin-bottom:4px}';
+  h += '.vigilance{background:#fff3cd;padding:10px 15px;border-radius:4px;margin:8px 0}';
+  h += '.objectives{background:#d4edda;padding:10px 15px;border-radius:4px}';
+  h += '.footer{text-align:center;font-size:0.8em;color:#999;margin-top:40px;padding-top:15px;border-top:1px solid #ddd}';
+  h += '.praticien-note{background:#e8f4fd;padding:10px 15px;border-radius:4px;font-style:italic}';
+  h += '@media print{body{margin:20px}}';
+  h += '</style></head><body>';
+
+  // 1. Page de garde
+  h += '<div class="page-header">';
+  h += '<h1>Bilan Neuronutritionnel</h1>';
+  h += '<div class="subtitle">NutriConsult Pro — wellneuro.fr</div>';
+  h += '<div class="subtitle" style="margin-top:15px;font-size:1.1em"><strong>' + escapeHtml_(patientNom) + '</strong></div>';
+  h += '<div class="subtitle">' + escapeHtml_(dateGeneration) + '</div>';
+  h += '</div>';
+
+  // 2. Résumé patient accessible
+  if (s.narratif_patient) {
+    h += '<div class="section">';
+    h += '<h2>Votre profil en quelques mots</h2>';
+    h += '<p>' + escapeHtml_(s.narratif_patient) + '</p>';
+    h += '</div>';
+  }
+
+  // 3. Ce que les questionnaires suggèrent
+  var axesPrioritaires = Array.isArray(s.axes_prioritaires)
+    ? s.axes_prioritaires.filter(function(a) { return a && String(a.axe || '').trim(); })
+    : [];
+  if (axesPrioritaires.length > 0) {
+    h += '<div class="section">';
+    h += '<h2>Ce que vos questionnaires suggèrent</h2>';
+    var maxAxes = Math.min(axesPrioritaires.length, 3);
+    for (var i = 0; i < maxAxes; i++) {
+      var a = axesPrioritaires[i];
+      var cls = a.niveau_priorite === 'eleve' ? 'high' : a.niveau_priorite === 'modere' ? 'moderate' : 'low';
+      h += '<div class="priority ' + cls + '">';
+      h += '<strong>' + escapeHtml_(a.axe) + '</strong>';
+      if (a.arguments && a.arguments.length > 0) {
+        h += '<p style="margin:4px 0 0;font-size:0.95em">' + a.arguments.map(escapeHtml_).join(' — ') + '</p>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  // 4. Points de vigilance
+  if (s.points_de_vigilance && s.points_de_vigilance.length > 0) {
+    h += '<div class="section">';
+    h += '<h2>Points de vigilance</h2>';
+    s.points_de_vigilance.forEach(function(p) {
+      h += '<div class="vigilance">' + escapeHtml_(p) + '</div>';
+    });
+    h += '</div>';
+  }
+
+  // 5. Objectifs du mois
+  h += '<div class="section">';
+  h += '<h2>Prochaines étapes</h2>';
+  h += '<div class="objectives">';
+  h += '<p>Les axes identifiés seront discutés lors de votre consultation. ';
+  h += 'Votre praticien définira avec vous les priorités et les objectifs adaptés à votre situation.</p>';
+  h += '</div>';
+  h += '</div>';
+
+  // 6. Message de validation praticien
+  if (notesPraticien) {
+    h += '<div class="section">';
+    h += '<h2>Message de votre praticien</h2>';
+    h += '<div class="praticien-note">' + escapeHtml_(notesPraticien) + '</div>';
+    h += '</div>';
+  }
+
+  // Footer
+  h += '<div class="footer">';
+  h += '<p>Document généré après validation par votre praticien.<br>';
+  h += 'Ce bilan ne constitue pas un diagnostic médical.<br>';
+  h += 'wellneuro.fr — NutriConsult Pro SIIN</p>';
+  h += '</div>';
+
+  h += '</body></html>';
+  return h;
+}
+
+function escapeHtml_(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function getLatestSynthesis(patientEmail) {
