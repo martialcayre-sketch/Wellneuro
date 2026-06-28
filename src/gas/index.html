@@ -371,6 +371,43 @@
       </div>
     </div>
 
+    <!-- Suivi opérationnel Phase 4 -->
+    <div class="card p-3 mb-4 border-0 shadow-sm" style="background:linear-gradient(135deg,#f8fbfc 0%,#eef6ff 100%)">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <div>
+          <div class="stitle mb-1"><i class="fas fa-chart-line me-2"></i>Suivi opérationnel</div>
+          <div class="small text-muted">Synthèses IA, validation praticien et booklets envoyés</div>
+        </div>
+        <div class="small text-muted" id="ops-last-activity">—</div>
+      </div>
+      <div class="row g-3">
+        <div class="col-6 col-md-3">
+          <div class="card p-3 text-center h-100">
+            <div class="stat-num" style="color:var(--accent)" id="m-syntheses-total">—</div>
+            <div class="stat-lbl">Synthèses IA</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card p-3 text-center h-100">
+            <div class="stat-num text-success" id="m-syntheses-valides">—</div>
+            <div class="stat-lbl">Validées / corrigées</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card p-3 text-center h-100">
+            <div class="stat-num text-primary" id="m-booklets-envoyes">—</div>
+            <div class="stat-lbl">Booklets envoyés</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card p-3 text-center h-100">
+            <div class="stat-num text-danger" id="m-audit-erreurs">—</div>
+            <div class="stat-lbl">Erreurs audit</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Onglets -->
     <ul class="nav nav-tabs mb-4" id="praticienTabs">
       <li class="nav-item">
@@ -1340,6 +1377,17 @@ function loadPraticienHome() {
       var ass = d.assignations || [];
       document.getElementById('s-pending').textContent = ass.filter(function(a) { return a.statut === 'En attente'; }).length;
       document.getElementById('s-done').textContent = ass.filter(function(a) { return a.statut === 'Complété'; }).length;
+
+      // Metrics opérationnelles
+      var m = d.metrics || {};
+      document.getElementById('m-syntheses-total').textContent = m.synthesesTotal || 0;
+      document.getElementById('m-syntheses-valides').textContent = m.synthesesValidees || 0;
+      document.getElementById('m-booklets-envoyes').textContent = m.bookletsEnvoyes || 0;
+      document.getElementById('m-audit-erreurs').textContent = m.auditErreurs || 0;
+      var lastActivity = [];
+      if (m.lastSyntheseDate) lastActivity.push('Dernière synthèse : ' + m.lastSyntheseDate);
+      if (m.lastBookletDate) lastActivity.push('Dernier booklet : ' + m.lastBookletDate);
+      document.getElementById('ops-last-activity').textContent = lastActivity.length ? lastActivity.join(' • ') : 'Aucune activité enregistrée';
 
       // Populate patient selects
       var patOpts = (d.patients || []).map(function(p) {

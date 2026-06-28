@@ -514,10 +514,72 @@ function getPraticienDashboard() {
       });
     }
 
-    return { patients, questionnaires, packs, assignations };
+    const metrics = getPracticienMetrics_();
+
+    return { patients, questionnaires, packs, assignations, metrics };
   } catch(e) {
     return { error: e.message };
   }
+}
+
+function getPracticienMetrics_() {
+  var metrics = {
+    synthesesTotal: 0,
+    synthesesValidees: 0,
+    synthesesBrouillon: 0,
+    bookletsEnvoyes: 0,
+    auditErreurs: 0,
+    lastSyntheseDate: '',
+    lastBookletDate: ''
+  };
+
+  try {
+    var synthSh = getSheet('Syntheses_IA');
+    if (synthSh) {
+      var synthRows = synthSh.getDataRange().getValues();
+      for (var i = DATA_START; i < synthRows.length; i++) {
+        var row = synthRows[i];
+        if (!row[0]) continue;
+        metrics.synthesesTotal++;
+        if (row[8] === 'Validee_Praticien' || row[8] === 'Corrigee_Praticien') metrics.synthesesValidees++;
+        if (row[8] === 'Brouillon_IA') metrics.synthesesBrouillon++;
+        if (!metrics.lastSyntheseDate && row[3]) metrics.lastSyntheseDate = formatDate(row[3]);
+      }
+    }
+  } catch(e) {
+    Logger.log('getPracticienMetrics_ synth error: ' + e.message);
+  }
+
+  try {
+    var bookletSh = getSheet('Booklet_Envois');
+    if (bookletSh) {
+      var bookletRows = bookletSh.getDataRange().getValues();
+      for (var j = DATA_START; j < bookletRows.length; j++) {
+        var bRow = bookletRows[j];
+        if (!bRow[0]) continue;
+        if (bRow[4] === 'Envoye') metrics.bookletsEnvoyes++;
+        if (!metrics.lastBookletDate && bRow[0]) metrics.lastBookletDate = formatDate(bRow[0]);
+      }
+    }
+  } catch(e) {
+    Logger.log('getPracticienMetrics_ booklet error: ' + e.message);
+  }
+
+  try {
+    var auditSh = getSheet('Audit_Syntheses_IA');
+    if (auditSh) {
+      var auditRows = auditSh.getDataRange().getValues();
+      for (var k = DATA_START; k < auditRows.length; k++) {
+        var aRow = auditRows[k];
+        if (!aRow[0]) continue;
+        if (aRow[5] === 'Erreur') metrics.auditErreurs++;
+      }
+    }
+  } catch(e) {
+    Logger.log('getPracticienMetrics_ audit error: ' + e.message);
+  }
+
+  return metrics;
 }
 
 function addPatient(prenom, nom, email, telephone, dateNaissance) {
