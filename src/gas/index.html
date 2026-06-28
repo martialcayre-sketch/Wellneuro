@@ -897,6 +897,19 @@ function renderPatientHome(list) {
         </div>
       </div>`;
   }).join('');
+
+  // Auto-lancement si le patient arrive depuis le lien email pré-consultation.
+  // PRECONSULT_ASSIGN_ID est injecté dans le HTML par doGet() quand le paramètre
+  // ?assign= est présent dans l'URL. On le consomme une seule fois.
+  if (window.PRECONSULT_ASSIGN_ID) {
+    var target = list.find(function(a) { return a.idAssignation === window.PRECONSULT_ASSIGN_ID; });
+    if (target && target.statut !== 'Complété') {
+      window.PRECONSULT_ASSIGN_ID = null;
+      startQ(target.idQuestionnaire, target.idAssignation);
+    } else {
+      window.PRECONSULT_ASSIGN_ID = null; // consommer même si déjà complété
+    }
+  }
 }
 
 // ═══════════════════ PATIENT — QUESTIONNAIRE ═══════════════════
@@ -1454,7 +1467,10 @@ function doAssign() {
   google.script.run
     .withSuccessHandler(function(r) {
       if (r.error) { fb.textContent = r.error; fb.className = 'small text-danger'; return; }
-      fb.textContent = 'Questionnaire assigné !'; fb.className = 'small text-success';
+      fb.textContent = r.emailSent
+        ? 'Questionnaire assigné, lien envoyé au patient.'
+        : 'Questionnaire assigné. Configurez WEB_APP_URL si le lien email n\'est pas parti.';
+      fb.className = r.emailSent ? 'small text-success' : 'small text-warning';
       setTimeout(function() { fb.textContent = ''; }, 4000);
       google.script.run
         .withSuccessHandler(function(d) { renderAssignations(d.assignations || []); })
@@ -1512,7 +1528,7 @@ function renderResults(list) {
       '<span class="fw-semibold">' + r.titre + '</span>' + total +
       '<span class="text-muted small ms-auto">' + (r.date || '') + '</span>' +
       '</div>' + interp + subScoresHtml +
-      (r.interpretation ? '<div class="text-muted small mt-1">' + r.interpretation + '</div>' : '') +
+      (r.interpretation && !interp ? '<div class="text-muted small mt-1">' + r.interpretation + '</div>' : '') +
       '</div>';
   }).join('');
 }
@@ -1641,28 +1657,22 @@ function confirmAssignPack(pack) {
   var qids = pack.qids || [];
   if (qids.length === 0) { alert('Ce pack est vide.'); return; }
 
-  var done = 0; var errors = 0;
-  qids.forEach(function(idQ) {
-    google.script.run
-      .withSuccessHandler(function(r) {
-        done++;
-        if (r.error) errors++;
-        if (done === qids.length) {
-          bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPack')).hide();
-          alert(errors === 0
-            ? 'Pack assigné — ' + qids.length + ' questionnaires envoyés.'
-            : 'Assignation partielle : ' + (done - errors) + '/' + qids.length + ' réussis.');
-          loadPraticienHome();
-        }
-      })
-      .withFailureHandler(function() { done++; errors++; })
-      .assignQuestionnaireFromClient({
-        emailPatient: idPatient,
-        idQuestionnaire: idQ,
-        dateLimite: dateLim,
-        notes: note
-      });
-  });
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.error) { alert(r.error); return; }
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPack')).hide();
+      alert(r.emailSent
+        ? 'Pack assigné — ' + r.count + ' questionnaires et lien envoyés.'
+        : 'Pack assigné — ' + r.count + ' questionnaires. Configurez WEB_APP_URL si le lien email n\'est pas parti.');
+      loadPraticienHome();
+    })
+    .withFailureHandler(function(e) { alert('Erreur : ' + e.message); })
+    .assignPackFromClient({
+      emailPatient: idPatient,
+      idPack: pack.idPack,
+      dateLimite: dateLim,
+      notes: note
+    });
 }
 
 // ═══════════════════ DEBUG ═══════════════════

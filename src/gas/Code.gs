@@ -18,9 +18,17 @@ const DEV_MULTI_ROLE_EMAILS = ['martialcayre@wellneuro.fr'];
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('index')
+  var assignId = (e && e.parameter && e.parameter.assign)
+    ? String(e.parameter.assign)
+    : '';
+  var output = HtmlService.createHtmlOutputFromFile('index')
     .setTitle('NutriConsult Pro — SIIN')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  if (assignId) {
+    // Injection sûre via JSON.stringify pour éviter toute injection de caractères spéciaux.
+    output.append('<script>window.PRECONSULT_ASSIGN_ID=' + JSON.stringify(assignId) + ';<\/script>');
+  }
+  return output;
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -281,6 +289,160 @@ function sendAcknowledgmentToPatient_(patientEmail, patientPrenom, titreQuestion
   }
 }
 
+function getWebAppUrl_() {
+  var props = PropertiesService.getScriptProperties();
+  var configuredUrl = props.getProperty('WEB_APP_URL') || props.getProperty('APP_URL') || '';
+  if (configuredUrl) return configuredUrl;
+  try {
+    return ScriptApp.getService().getUrl() || '';
+  } catch(e) {
+    Logger.log('getWebAppUrl_ error: ' + e.message);
+    return '';
+  }
+}
+
+function buildPatientAccessLink_(idAssignation) {
+  var baseUrl = getWebAppUrl_();
+  if (!baseUrl) return '';
+  var separator = baseUrl.indexOf('?') === -1 ? '?' : '&';
+  return baseUrl + separator + 'assign=' + encodeURIComponent(idAssignation || '');
+}
+
+function formatDeadlineForEmail_(dateLimite) {
+  if (!dateLimite) return '';
+  try {
+    return Utilities.formatDate(new Date(dateLimite), 'Europe/Paris', 'dd/MM/yyyy');
+  } catch(e) {
+    return '';
+  }
+}
+
+function sendAssignmentLinkToPatient_(patientEmail, titreQuestionnaire, dateLimite, notes, idAssignation) {
+  try {
+    var link = buildPatientAccessLink_(idAssignation);
+    if (!link) {
+      Logger.log('sendAssignmentLinkToPatient_ skipped: WEB_APP_URL non configuré');
+      return false;
+    }
+    var deadline = formatDeadlineForEmail_(dateLimite);
+    var sujet = 'Questionnaire à compléter avant votre consultation — NutriConsult';
+    var corps = 'Bonjour,\n\n'
+      + 'Votre praticien vous invite à compléter le questionnaire suivant avant votre consultation :\n'
+      + '« ' + titreQuestionnaire + ' »\n\n'
+      + (deadline ? 'Date limite souhaitée : ' + deadline + '\n\n' : '')
+      + (notes ? 'Message du praticien : ' + notes + '\n\n' : '')
+      + 'Accéder à votre espace questionnaire :\n' + link + '\n\n'
+      + 'Merci de votre participation.\n\n'
+      + '— L\'équipe NutriConsult';
+    sendNoReplyEmailToPatient_(patientEmail, sujet, corps);
+    return true;
+  } catch(e) {
+    Logger.log('sendAssignmentLinkToPatient_ error: ' + e.message);
+    return false;
+  }
+}
+
+function sendPackAssignmentLinkToPatient_(patientEmail, packNom, count, dateLimite, notes, idAssignations) {
+  try {
+    var firstId = idAssignations && idAssignations.length ? idAssignations[0] : '';
+    var link = buildPatientAccessLink_(firstId);
+    if (!link) {
+      Logger.log('sendPackAssignmentLinkToPatient_ skipped: WEB_APP_URL non configuré');
+      return false;
+    }
+    var deadline = formatDeadlineForEmail_(dateLimite);
+    var sujet = 'Questionnaires à compléter avant votre consultation — NutriConsult';
+    var corps = 'Bonjour,\n\n'
+      + 'Votre praticien vous invite à compléter ' + count + ' questionnaire' + (count > 1 ? 's' : '')
+      + ' du pack « ' + packNom + ' » avant votre consultation.\n\n'
+      + (deadline ? 'Date limite souhaitée : ' + deadline + '\n\n' : '')
+      + (notes ? 'Message du praticien : ' + notes + '\n\n' : '')
+      + 'Accéder à votre espace questionnaire :\n' + link + '\n\n'
+      + 'Merci de votre participation.\n\n'
+      + '— L\'équipe NutriConsult';
+    sendNoReplyEmailToPatient_(patientEmail, sujet, corps);
+    return true;
+  } catch(e) {
+    Logger.log('sendPackAssignmentLinkToPatient_ error: ' + e.message);
+    return false;
+  }
+}
+
+// ─── RAPPELS PRÉ-CONSULTATION ────────────────────────────────────────────────
+
+/**
+ * Envoie un rappel aux patients qui n'ont pas encore répondu, dans la fenêtre
+ * [24h avant la date limite, date limite]. Utilise la colonne J de la feuille
+ * Assignations comme marqueur « rappel déjà envoyé » (TRUE/vide).
+ * À appeler via un déclencheur quotidien — voir configurerRappelsAutomatiques().
+ */
+function sendReminders_() {
+  var sh = getSheet('Assignations');
+  if (!sh) { Logger.log('sendReminders_: feuille Assignations introuvable'); return 0; }
+  var rows = sh.getDataRange().getValues();
+  var now = new Date().getTime();
+  var sent = 0;
+
+  for (var i = DATA_START; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row[0]) continue;                                     // ligne vide
+    if (row[7] !== 'En attente') continue;                     // déjà complété
+    if (row[9] === true || row[9] === 'TRUE') continue;        // rappel déjà envoyé (col J)
+
+    var dateLimite = row[6];
+    if (!dateLimite || dateLimite === '') continue;
+    var deadline = new Date(dateLimite).getTime();
+    if (isNaN(deadline)) continue;
+
+    var reminderWindow = deadline - 24 * 60 * 60 * 1000;
+    if (now < reminderWindow || now >= deadline) continue;     // hors fenêtre
+
+    var patientEmail = row[2];
+    var titreQ       = row[4];
+    var idAssignation = row[0];
+    var link = buildPatientAccessLink_(idAssignation);
+
+    var sujet = 'Rappel — Questionnaire à compléter avant demain';
+    var corps = 'Bonjour,\n\n'
+      + 'Vous avez un questionnaire à compléter avant votre consultation :\n'
+      + '« ' + titreQ + ' »\n\n'
+      + 'Date limite : ' + formatDeadlineForEmail_(dateLimite) + '\n\n'
+      + (link ? 'Accéder au questionnaire :\n' + link + '\n\n' : '')
+      + 'Merci de votre participation.\n\n'
+      + '— L\'équipe NutriConsult';
+
+    try {
+      sendNoReplyEmailToPatient_(patientEmail, sujet, corps);
+      sh.getRange(i + 1, 10).setValue(true);   // col J = ReminderSent
+      sent++;
+    } catch(e) {
+      Logger.log('sendReminders_ erreur pour ' + patientEmail + ' : ' + e.message);
+    }
+  }
+  Logger.log('sendReminders_ : ' + sent + ' rappel(s) envoyé(s)');
+  return sent;
+}
+
+/**
+ * Configure un déclencheur quotidien à 8h00 pour sendReminders_.
+ * À exécuter UNE SEULE FOIS depuis l'éditeur Apps Script :
+ * Ouvrir Apps Script > Fonctions > configurerRappelsAutomatiques > Exécuter.
+ */
+function configurerRappelsAutomatiques() {
+  // Supprimer l'éventuel déclencheur existant pour éviter les doublons.
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'sendReminders_') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('sendReminders_')
+    .timeBased()
+    .everyDays(1)
+    .atHour(8)
+    .create();
+  Logger.log('Déclencheur créé : sendReminders_ tous les jours à 8h.');
+}
+
 // ─── FONCTIONS PRATICIEN ──────────────────────────────────────────────────────
 
 function getPraticienDashboard() {
@@ -396,7 +558,7 @@ function getPatientIdByEmail(patientEmail) {
   return fallbackId;
 }
 
-function assignQuestionnaire(patientEmail, idQuestionnaire, titreQ, dateLimite, notes) {
+function assignQuestionnaire(patientEmail, idQuestionnaire, titreQ, dateLimite, notes, suppressEmail) {
   try {
     const sh = getSheet('Assignations');
     const praticienEmail = Session.getActiveUser().getEmail();
@@ -420,7 +582,8 @@ function assignQuestionnaire(patientEmail, idQuestionnaire, titreQ, dateLimite, 
       notes || ''
     ]]);
 
-    return { success: true, id: id };
+    var emailSent = suppressEmail ? false : sendAssignmentLinkToPatient_(patientEmail, titreQ, dateLimite, notes, id);
+    return { success: true, id: id, emailSent: emailSent };
   } catch(e) {
     return { error: e.message };
   }
@@ -533,6 +696,7 @@ function assignPack(patientEmail, packId, dateLimite, notes) {
 
     // Assigner chaque questionnaire du pack
     const assigned = [];
+    const assignedIds = [];
     pack.qids.forEach(qid => {
       const titre = qMap[qid] || qid;
       const result = assignQuestionnaire(
@@ -540,13 +704,20 @@ function assignPack(patientEmail, packId, dateLimite, notes) {
         qid,
         titre,
         dateLimite,
-        notes || ('Pack ' + pack.nom)
+        notes || ('Pack ' + pack.nom),
+        true
       );
-      if (result.success) assigned.push(qid);
+      if (result.success) {
+        assigned.push(qid);
+        assignedIds.push(result.id);
+      }
       Utilities.sleep(50); // évite les doublons d'ID timestamp
     });
 
-    return { success: true, count: assigned.length, packNom: pack.nom };
+    var emailSent = assigned.length > 0
+      ? sendPackAssignmentLinkToPatient_(patientEmail, pack.nom, assigned.length, dateLimite, notes || ('Pack ' + pack.nom), assignedIds)
+      : false;
+    return { success: true, count: assigned.length, packNom: pack.nom, emailSent: emailSent };
   } catch(e) {
     return { error: e.message };
   }
@@ -620,6 +791,15 @@ function assignQuestionnaireFromClient(payload) {
     payload.emailPatient || '',
     payload.idQuestionnaire || '',
     titre,
+    payload.dateLimite || '',
+    payload.notes || ''
+  );
+}
+
+function assignPackFromClient(payload) {
+  return assignPack(
+    payload.emailPatient || '',
+    payload.idPack || '',
     payload.dateLimite || '',
     payload.notes || ''
   );
@@ -1019,7 +1199,8 @@ function getQuestionnaireResults(patientEmail) {
           results.push({
             idReponse: row[0], idPatient: row[1], email: row[2],
             idAssignation: row[3], idQuestionnaire: row[4], titre: row[5],
-            date: formatDate(row[6]), scores: scores,
+            date: formatDate(row[6]), _ts: row[6] ? new Date(row[6]).getTime() : 0,
+            scores: scores,
             scorePrincipal: row[9], interpretation: row[10]
           });
         }
@@ -1034,13 +1215,14 @@ function getQuestionnaireResults(patientEmail) {
         const row = rowsP[i];
         if (!row[0]) continue;
         if (normalizeEmail_(row[2]) === normalizedEmail) {
-          const total = row[12] || 0;
-          const interp = row[13] || '';
+          const total = (Number(row[5]) || 0) + (Number(row[6]) || 0) + (Number(row[7]) || 0) +
+                        (Number(row[8]) || 0) + (Number(row[9]) || 0) + (Number(row[10]) || 0) + (Number(row[11]) || 0);
+          const interp = total >= 56 ? '🟢 Faible charge' : total >= 35 ? '🟠 Charge modérée' : total > 0 ? '🔴 Charge élevée' : '—';
           results.push({
             idReponse: row[0], idPatient: row[1], email: row[2],
             idAssignation: row[3], idQuestionnaire: 'Q_PLAINTES',
             titre: 'Questionnaire de Plaintes',
-            date: formatDate(row[4]),
+            date: formatDate(row[4]), _ts: row[4] ? new Date(row[4]).getTime() : 0,
             scores: {
               total: total,
               subScores: [
@@ -1061,8 +1243,9 @@ function getQuestionnaireResults(patientEmail) {
     }
 
     results.sort(function(a, b) {
-      return new Date(b.date) - new Date(a.date);
+      return (b._ts || 0) - (a._ts || 0);
     });
+    results.forEach(function(r) { delete r._ts; });
 
     return results;
   } catch(e) { return { error: e.message }; }
