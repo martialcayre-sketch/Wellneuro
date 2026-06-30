@@ -46,7 +46,7 @@ Colle le BASE64 du step précédent et appuie sur **Ctrl+D**.
 - ❌ Ne committe JAMAIS `.clasprc.json` (credentials personnels)
 - ❌ Ne committe JAMAIS `.clasp.json` (configuration locale du script GAS)
 - ❌ Ne partage JAMAIS le BASE64 des credentials
-- ✓ `.deploy-id` est safe (ID public du déploiement)
+- ✓ `.deploy-id` est safe (ID public du déploiement, local)
 
 ## Files
 
@@ -54,7 +54,7 @@ Colle le BASE64 du step précédent et appuie sur **Ctrl+D**.
 |------|---------|--------|---------|
 | `.clasprc.json` | Credentials clasp | ❌ Secret | **NO** |
 | `.clasp.json` | Config projet GAS locale | ⚠️ Local only | **NO** |
-| `.deploy-id` | ID déploiement | ✓ Safe | **YES** |
+| `.deploy-id` | ID déploiement local | ✓ Safe | **NO** |
 | `src/gas/` | Code GAS | ✓ Safe | **YES** |
 
 ---

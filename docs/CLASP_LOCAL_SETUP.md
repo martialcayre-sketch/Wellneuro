@@ -122,7 +122,7 @@ clasp deploy -i AKfycbwMmpR3vx6ncmxJbS7gFCgxpVdpuEPrVdWnB5OcvHFQle1YvNpknNqjAU4a
 
 - `.clasprc.json` (credentials) → **NE PAS COMMITTER** (dans .gitignore)
 - `.clasp.json` (config projet) → **NE PAS COMMITTER** (local uniquement)
-- `.deploy-id` (ID déploiement) → **À COMMITTER** (safe, permet de mettre à jour le même déploiement)
+- `.deploy-id` (ID déploiement) → **NE PAS COMMITTER** (fichier local, déjà ignoré par Git)
 - Tous les scripts dans `scripts/deploy.sh` incluent les vérifications de sécurité
 
 ## FAQ
