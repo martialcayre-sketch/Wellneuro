@@ -4,7 +4,7 @@ Guide pour déployer Wellneuro GAS depuis ton VS Studio local au lieu de Codespa
 
 ## ⚠️ Sécurité
 
-**NE JAMAIS COMMITTER** les fichiers `.clasprc.json` ou `.clasp.json` avec des credentials réels.
+**NE JAMAIS COMMITTER** les fichiers `.clasprc.json` ou `.clasp.json`.
 Les credentials sont personnels et doivent rester locaux.
 
 ## Étapes
@@ -32,11 +32,11 @@ git clone https://github.com/martialcayre-sketch/Wellneuro.git Wellneuro-app
 cd Wellneuro-app
 ```
 
-Vérifie que `.clasp.json` contient:
+Crée `.clasp.json` à partir de `.clasp.example.json`, puis vérifie qu'il contient:
 
 ```json
 {
-  "scriptId": "1ayljcnN4H0n-S7CMTRa97Yf_1fdVHFXwmW_uyS3bZJF1ArYx9HkbFYnT",
+  "scriptId": "A_REMPLACER_PAR_LE_SCRIPT_ID_LOCAL",
   "rootDir": "src/gas",
   "scriptExtensions": [".js", ".gs"],
   "htmlExtensions": [".html"],
@@ -44,7 +44,7 @@ Vérifie que `.clasp.json` contient:
 }
 ```
 
-Ce fichier est **safe à committer** (pas de secrets).
+Ce fichier doit rester **strictement local**.
 
 ### 3. Déploie depuis ton PC
 
@@ -121,7 +121,7 @@ clasp deploy -i AKfycbwMmpR3vx6ncmxJbS7gFCgxpVdpuEPrVdWnB5OcvHFQle1YvNpknNqjAU4a
 ## Notes
 
 - `.clasprc.json` (credentials) → **NE PAS COMMITTER** (dans .gitignore)
-- `.clasp.json` (config projet) → **À COMMITTER** (safe, pas de secrets)
+- `.clasp.json` (config projet) → **NE PAS COMMITTER** (local uniquement)
 - `.deploy-id` (ID déploiement) → **À COMMITTER** (safe, permet de mettre à jour le même déploiement)
 - Tous les scripts dans `scripts/deploy.sh` incluent les vérifications de sécurité
 

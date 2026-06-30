@@ -1,0 +1,12 @@
+{
+  "name": "wellneuro",
+  "private": true,
+  "scripts": {
+    "check:secrets": "bash scripts/check_no_secrets.sh",
+    "clasp:login": "clasp login --no-localhost",
+    "clasp:pull": "clasp pull",
+    "clasp:push": "clasp push",
+    "clasp:status": "clasp status",
+    "clasp:open": "clasp open"
+  }
+}

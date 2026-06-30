@@ -2,7 +2,7 @@
 
 ## ✓ État actuel
 - clasp est installé (`v3.3.0`)
-- `.clasp.json` est configuré avec le script ID Wellneuro NNPP2
+- `.clasp.json` doit être configuré localement avec le script ID
 - Authentification: **À reconfigurer**
 
 ## Configuration de clasp (authentification)
@@ -56,5 +56,5 @@ Cela:
 ## ⚠ Sécurité
 
 - `~/.clasprc.json` ne doit JAMAIS être commité
-- `.clasp.json` peut être versionné (contient juste le scriptId, pas les secrets)
+- `.clasp.json` ne doit jamais être commité (configuration locale)
 - Avant chaque push, `scripts/deploy.sh` lance `scripts/check_no_secrets.sh`
