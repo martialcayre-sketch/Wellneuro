@@ -1,0 +1,62 @@
+import { AuthOptions } from 'next-auth';
+import GoogleProvider from 'next-auth/providers/google';
+
+// Domaines Google Workspace autorisés (praticiens Wellneuro uniquement)
+const ALLOWED_DOMAINS = ['wellneuro.fr'];
+
+export const authOptions: AuthOptions = {
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          // Forcer le choix du compte à chaque connexion
+          prompt: 'select_account',
+          // Profil + lecture Sheets pour les métriques dashboard (Lot C2)
+          scope: 'openid email profile https://www.googleapis.com/auth/spreadsheets.readonly',
+        },
+      },
+    }),
+  ],
+  callbacks: {
+    async signIn({ account, profile }) {
+      // Restreindre l'accès aux domaines autorisés
+      const email = profile?.email ?? '';
+      const domain = email.split('@')[1] ?? '';
+      if (!ALLOWED_DOMAINS.includes(domain)) {
+        return false; // Connexion refusée
+      }
+      return true;
+    },
+    async session({ session, token }) {
+      // Exposer l'email dans la session
+      if (session.user && token.email) {
+        session.user.email = token.email;
+      }
+      // Exposer l'access_token pour l'API Sheets (Lot C2)
+      if (token.accessToken) {
+        session.accessToken = token.accessToken;
+      }
+      return session;
+    },
+    async jwt({ token, account, profile }) {
+      // Stocker l'access_token Google lors de la connexion initiale
+      if (account?.access_token) {
+        token.accessToken = account.access_token;
+      }
+      if (profile?.email) {
+        token.email = profile.email;
+      }
+      return token;
+    },
+  },
+  pages: {
+    signIn: '/login',
+    error: '/login',
+  },
+  session: {
+    strategy: 'jwt',
+    maxAge: 8 * 60 * 60, // 8 heures — durée journée de travail
+  },
+};

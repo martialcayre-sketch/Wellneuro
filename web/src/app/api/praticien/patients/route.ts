@@ -1,0 +1,322 @@
+import { getServerSession, type Session } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+
+const DATA_START = 3;
+const MAX_ASSIGNATIONS = 40;
+
+type Patient = {
+  idPatient: string;
+  email: string;
+  prenom: string;
+  nom: string;
+  telephone: string;
+  actif: string;
+};
+
+type Assignation = {
+  idAssignation: string;
+  idPatient: string;
+  emailPatient: string;
+  idQuestionnaire: string;
+  titre: string;
+  dateAssignation: string;
+  statut: string;
+};
+
+export type PatientsApiResponse = {
+  patients: Patient[];
+  assignations: Assignation[];
+  unavailable?: boolean;
+  reason?:
+    | 'unauthenticated'
+    | 'no_sheet_id'
+    | 'no_access_token'
+    | 'sheets_400'
+    | 'sheets_401'
+    | 'sheets_403'
+    | 'sheets_404'
+    | 'exception';
+};
+
+export type CreatePatientResponse = {
+  success: boolean;
+  patient?: Patient;
+  error?: string;
+  reason?:
+    | 'unauthenticated'
+    | 'no_sheet_id'
+    | 'no_access_token'
+    | 'invalid_payload'
+    | 'duplicate_email'
+    | 'sheets_400'
+    | 'sheets_401'
+    | 'sheets_403'
+    | 'sheets_404'
+    | 'exception';
+};
+
+type SessionContext = {
+  session: Session | null;
+  sheetId?: string;
+  accessToken?: string;
+};
+
+function getSessionContext(session: SessionContext['session']): SessionContext {
+  return {
+    session,
+    sheetId: process.env.SHEET_ID,
+    accessToken: session?.accessToken,
+  };
+}
+
+function mapSheetsReason(status: number): 'sheets_400' | 'sheets_401' | 'sheets_403' | 'sheets_404' | 'exception' {
+  if (status === 400) return 'sheets_400';
+  if (status === 401) return 'sheets_401';
+  if (status === 403) return 'sheets_403';
+  if (status === 404) return 'sheets_404';
+  return 'exception';
+}
+
+export async function GET(): Promise<NextResponse<PatientsApiResponse>> {
+  const session = await getServerSession(authOptions);
+  const { sheetId, accessToken } = getSessionContext(session);
+
+  if (!session) {
+    return NextResponse.json(
+      {
+        patients: [],
+        assignations: [],
+        unavailable: true,
+        reason: 'unauthenticated',
+      },
+      { status: 401 }
+    );
+  }
+
+  if (!sheetId || !accessToken) {
+    return NextResponse.json({
+      patients: [],
+      assignations: [],
+      unavailable: true,
+      reason: !sheetId ? 'no_sheet_id' : 'no_access_token',
+    });
+  }
+
+  const ranges = ['Patients!A:J', 'Assignations!A:H'];
+  const qs = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet?${qs}`;
+
+  try {
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+
+    if (!resp.ok) {
+      const reason =
+        mapSheetsReason(resp.status);
+
+      return NextResponse.json({
+        patients: [],
+        assignations: [],
+        unavailable: true,
+        reason,
+      });
+    }
+
+    const data = await resp.json();
+    const [patientsRange, assignationsRange] = data.valueRanges ?? [];
+
+    const patientRows: string[][] = (patientsRange?.values ?? []).slice(DATA_START);
+    const assignationRows: string[][] = (assignationsRange?.values ?? []).slice(DATA_START);
+
+    const patients = patientRows
+      .filter(row => row[0] && row[2] === 'Patient')
+      .map(row => ({
+        idPatient: row[0] ?? '',
+        email: row[1] ?? '',
+        prenom: row[3] ?? '',
+        nom: row[4] ?? '',
+        telephone: row[6] ?? '',
+        actif: row[9] ?? '',
+      }));
+
+    const assignations = assignationRows
+      .filter(row => row[0])
+      .slice(-MAX_ASSIGNATIONS)
+      .reverse()
+      .map(row => ({
+        idAssignation: row[0] ?? '',
+        idPatient: row[1] ?? '',
+        emailPatient: row[2] ?? '',
+        idQuestionnaire: row[3] ?? '',
+        titre: row[4] ?? '',
+        dateAssignation: row[5] ?? '',
+        statut: row[7] ?? '',
+      }));
+
+    return NextResponse.json({ patients, assignations });
+  } catch {
+    return NextResponse.json({
+      patients: [],
+      assignations: [],
+      unavailable: true,
+      reason: 'exception',
+    });
+  }
+}
+
+export async function POST(req: Request): Promise<NextResponse<CreatePatientResponse>> {
+  const session = await getServerSession(authOptions);
+  const { sheetId, accessToken } = getSessionContext(session);
+
+  if (!session) {
+    return NextResponse.json(
+      { success: false, reason: 'unauthenticated', error: 'Session absente.' },
+      { status: 401 }
+    );
+  }
+
+  if (!sheetId || !accessToken) {
+    return NextResponse.json({
+      success: false,
+      reason: !sheetId ? 'no_sheet_id' : 'no_access_token',
+      error: 'Configuration incomplète.',
+    });
+  }
+
+  type CreatePatientPayload = {
+    prenom?: string;
+    nom?: string;
+    email?: string;
+    telephone?: string;
+    dateNaissance?: string;
+  };
+
+  let payload: CreatePatientPayload;
+  try {
+    payload = (await req.json()) as CreatePatientPayload;
+  } catch {
+    return NextResponse.json(
+      { success: false, reason: 'invalid_payload', error: 'JSON invalide.' },
+      { status: 400 }
+    );
+  }
+
+  const prenom = (payload.prenom ?? '').trim();
+  const nom = (payload.nom ?? '').trim();
+  const email = (payload.email ?? '').trim().toLowerCase();
+  const telephone = (payload.telephone ?? '').trim();
+  const dateNaissance = (payload.dateNaissance ?? '').trim();
+
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!prenom || !nom || !isEmailValid) {
+    return NextResponse.json(
+      {
+        success: false,
+        reason: 'invalid_payload',
+        error: 'Prénom, nom et email valide sont requis.',
+      },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const readRanges = ['Patients!A:J'];
+    const readQs = readRanges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet?${readQs}`;
+
+    const readResp = await fetch(readUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+
+    if (!readResp.ok) {
+      const reason = mapSheetsReason(readResp.status);
+      return NextResponse.json({
+        success: false,
+        reason,
+        error: 'Impossible de lire la feuille Patients.',
+      });
+    }
+
+    const readData = await readResp.json();
+    const patientRows: string[][] = (readData.valueRanges?.[0]?.values ?? []).slice(DATA_START);
+
+    const duplicate = patientRows.some(row => {
+      const rowEmail = (row[1] ?? '').trim().toLowerCase();
+      const rowRole = row[2] ?? '';
+      return rowEmail === email && rowRole === 'Patient';
+    });
+
+    if (duplicate) {
+      return NextResponse.json(
+        { success: false, reason: 'duplicate_email', error: 'Un patient avec cet email existe déjà.' },
+        { status: 409 }
+      );
+    }
+
+    const maxId = patientRows.reduce((max, row) => {
+      const id = row[0] ?? '';
+      const m = /^PAT(\d+)$/.exec(id);
+      if (!m) return max;
+      return Math.max(max, Number(m[1]));
+    }, 0);
+    const idPatient = `PAT${String(maxId + 1).padStart(3, '0')}`;
+
+    const praticienEmail = (session.user?.email ?? '').toLowerCase();
+    const nowIso = new Date().toISOString();
+
+    const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('Patients!A:K')}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+    const appendResp = await fetch(appendUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [[
+          idPatient,
+          email,
+          'Patient',
+          prenom,
+          nom,
+          dateNaissance,
+          telephone,
+          praticienEmail,
+          nowIso,
+          'OUI',
+          '',
+        ]],
+      }),
+    });
+
+    if (!appendResp.ok) {
+      const reason = mapSheetsReason(appendResp.status);
+      return NextResponse.json({
+        success: false,
+        reason,
+        error: 'Impossible de créer le patient dans Google Sheets.',
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      patient: {
+        idPatient,
+        email,
+        prenom,
+        nom,
+        telephone,
+        actif: 'OUI',
+      },
+    });
+  } catch {
+    return NextResponse.json({
+      success: false,
+      reason: 'exception',
+      error: 'Erreur technique lors de la création du patient.',
+    });
+  }
+}

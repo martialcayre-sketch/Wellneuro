@@ -13,19 +13,30 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "eslint.validate": [
       "javascript",
-      "html"
+      "html",
+      "typescript",
+      "typescriptreact"
     ],
     "terminal.integrated.defaultProfile.linux": "bash",
     "terminal.integrated.cwd": "${workspaceFolder}",
     "search.exclude": {
       "**/node_modules": true,
-      "**/.git": true
+      "**/.git": true,
+      "**/.next": true
+    },
+    "tailwindCSS.includeLanguages": {
+      "typescript": "javascript",
+      "typescriptreact": "javascript"
+    },
+    "chat.tools.terminal.autoApprove": {
+      "clasp": true
     }
   },
   "extensions": {
     "recommendations": [
       "esbenp.prettier-vscode",
       "dbaeumer.vscode-eslint",
+      "bradlc.vscode-tailwindcss",
       "github.copilot",
       "github.copilot-chat",
       "ms-vscode-remote.remote-containers"
@@ -37,7 +48,21 @@
       {
         "label": "bootstrap-local",
         "type": "shell",
-        "command": "npm install -g @google/clasp && npm install"
+        "command": "npm install -g @google/clasp && cd web && npm install"
+      },
+      {
+        "label": "dev-web",
+        "type": "shell",
+        "command": "cd web && npm run dev",
+        "group": "build",
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "type-check",
+        "type": "shell",
+        "command": "cd web && npm run type-check",
+        "group": "test"
       },
       {
         "label": "check-no-secrets",

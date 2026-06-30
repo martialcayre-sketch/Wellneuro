@@ -1,0 +1,15 @@
+import { PatientsPanel } from '@/components/PatientsPanel';
+
+export default function DashboardPatientsPage() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-800">Patients & assignations</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Création patient + lecture des assignations depuis Google Sheets (Lot C3 en cours)
+        </p>
+      </div>
+      <PatientsPanel />
+    </div>
+  );
+}

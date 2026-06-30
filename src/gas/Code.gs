@@ -12,8 +12,13 @@ const PRACTITIONER_UNIQUE_EMAIL = 'martialcayre@wellneuro.fr';
 const ADMIN_EMAIL = 'admin@wellneuro.fr';
 
 // Mode développement : permet à Martial d'accéder aux deux espaces avec le même compte Google.
-// À supprimer ou vider avant mise en production.
-const DEV_MULTI_ROLE_EMAILS = ['martialcayre@wellneuro.fr'];
+// Activer via Script Properties : DEV_MODE=true et DEV_MULTI_ROLE_EMAIL=martialcayre@wellneuro.fr
+// En production : DEV_MODE doit être absent ou différent de 'true'.
+const DEV_MODE = PropertiesService.getScriptProperties().getProperty('DEV_MODE') === 'true';
+const DEV_MULTI_ROLE_EMAILS = DEV_MODE
+  ? (PropertiesService.getScriptProperties().getProperty('DEV_MULTI_ROLE_EMAIL') || 'martialcayre@wellneuro.fr')
+      .split(',').map(function(e) { return e.trim(); })
+  : [];
 
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
@@ -1331,6 +1336,18 @@ function submitQuestionnaire(payload) {
   try {
     const {idPatient, email, idAssignation, idQuestionnaire, answers} = payload;
     if (!idQuestionnaire || !answers) return {error: 'Données manquantes'};
+
+    // Validation du payload entrant (boundary check)
+    if (typeof idQuestionnaire !== 'string' || !/^[A-Z0-9_]{2,60}$/.test(idQuestionnaire)) {
+      return {error: 'Identifiant questionnaire invalide'};
+    }
+    if (typeof answers !== 'object' || Array.isArray(answers) || answers === null) {
+      return {error: 'Format de réponses invalide'};
+    }
+    var answerKeys = Object.keys(answers);
+    if (answerKeys.length === 0 || answerKeys.length > 500) {
+      return {error: 'Nombre de réponses invalide (attendu : 1-500)'};
+    }
 
     // En mode multi-rôle, on force l'enregistrement sur l'ID de la ligne Patient.
     const patientIdForSave = getPatientIdByEmail(email) || idPatient || '';

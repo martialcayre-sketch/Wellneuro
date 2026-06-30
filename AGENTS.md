@@ -44,10 +44,11 @@ Wellneuro NNPP2 est un MVP Google Apps Script destiné à accompagner un parcour
 
 ## Priorités produit et techniques
 
-- Priorité actuelle : stabiliser le MVP Google Apps Script
-- Ne pas commencer la migration Next.js, PostgreSQL, Auth0 ou hébergement HDS sans demande explicite
-- Ne pas modifier la logique métier sans consigne claire
-- Ne pas modifier `Code.gs`, `Questions.gs` ou `index.html` pour une tâche purement documentaire
+- Priorité actuelle : finaliser la stabilisation MVP Google Apps Script et mener en parallèle la migration progressive vers Next.js + Google Auth + Cloud Run + PostgreSQL.
+- La migration a été décidée explicitement le 2026-06-29. Le dossier `web/` contient le scaffold Next.js (POC Lot 0).
+- Ne pas modifier la logique clinique sans consigne claire.
+- Ne pas modifier `Code.gs`, `Questions.gs` ou `index.html` pour une tâche purement documentaire.
+- Ne pas décommissionner Apps Script avant que les lots C2-C4 soient validés en production.
 
 ## Règles de style
 
